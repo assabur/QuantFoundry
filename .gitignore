@@ -4,4 +4,8 @@
 .venv
 .idea
 .DS_Store
-*.cpython-313.pyc
+# Caches et bytecode Python (toutes versions, tous sous-dossiers)
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/

@@ -1,0 +1,21 @@
+flowchart TB
+  entry["local.py &#58; choix du YAML Silver ou Gold"]
+  context["ExecutionContext &#58; YAML et variables .env"]
+  config["GroupConfig et session Spark"]
+  wrapper["WrapperPipeline &#58; jobs enable triés par order"]
+  extract["Pipeline &#58; extraction des inputs"]
+  quality["quality_gate optionnel sur les données extraites"]
+  transform["Transformations SQL ou Python dans l’ordre du YAML"]
+  load["Chargement des outputs &#58; Parquet ou PostgreSQL"]
+  status["WrapperPipeline &#58; statut et durée, puis job suivant"]
+  logs["CoreValidator &#58; rapports NDJSON"]
+  entry --> context
+  context --> config
+  config --> wrapper
+  wrapper --> extract
+  extract --> quality
+  quality --> transform
+  transform --> load
+  load --> status
+  quality --> logs
+%% portable-canonical-v2:eyJhY2Nlc3NpYmlsaXR5IjpudWxsLCJkYXRhIjp7ImRpcmVjdGlvbiI6IlRCIiwiZWRnZXMiOlt7ImZyb20iOiJlbnRyeSIsInRvIjoiY29udGV4dCJ9LHsiZnJvbSI6ImNvbnRleHQiLCJ0byI6ImNvbmZpZyJ9LHsiZnJvbSI6ImNvbmZpZyIsInRvIjoid3JhcHBlciJ9LHsiZnJvbSI6IndyYXBwZXIiLCJ0byI6ImV4dHJhY3QifSx7ImZyb20iOiJleHRyYWN0IiwidG8iOiJxdWFsaXR5In0seyJmcm9tIjoicXVhbGl0eSIsInRvIjoidHJhbnNmb3JtIn0seyJmcm9tIjoidHJhbnNmb3JtIiwidG8iOiJsb2FkIn0seyJmcm9tIjoibG9hZCIsInRvIjoic3RhdHVzIn0seyJmcm9tIjoicXVhbGl0eSIsInRvIjoibG9ncyJ9XSwibm9kZXMiOlt7ImlkIjoiZW50cnkiLCJsYWJlbCI6ImxvY2FsLnB5IDogY2hvaXggZHUgWUFNTCBTaWx2ZXIgb3UgR29sZCJ9LHsiaWQiOiJjb250ZXh0IiwibGFiZWwiOiJFeGVjdXRpb25Db250ZXh0IDogWUFNTCBldCB2YXJpYWJsZXMgLmVudiJ9LHsiaWQiOiJjb25maWciLCJsYWJlbCI6Ikdyb3VwQ29uZmlnIGV0IHNlc3Npb24gU3BhcmsifSx7ImlkIjoid3JhcHBlciIsImxhYmVsIjoiV3JhcHBlclBpcGVsaW5lIDogam9icyBlbmFibGUgdHJpw6lzIHBhciBvcmRlciJ9LHsiaWQiOiJleHRyYWN0IiwibGFiZWwiOiJQaXBlbGluZSA6IGV4dHJhY3Rpb24gZGVzIGlucHV0cyJ9LHsiaWQiOiJxdWFsaXR5IiwibGFiZWwiOiJxdWFsaXR5X2dhdGUgb3B0aW9ubmVsIHN1ciBsZXMgZG9ubsOpZXMgZXh0cmFpdGVzIn0seyJpZCI6InRyYW5zZm9ybSIsImxhYmVsIjoiVHJhbnNmb3JtYXRpb25zIFNRTCBvdSBQeXRob24gZGFucyBs4oCZb3JkcmUgZHUgWUFNTCJ9LHsiaWQiOiJsb2FkIiwibGFiZWwiOiJDaGFyZ2VtZW50IGRlcyBvdXRwdXRzIDogUGFycXVldCBvdSBQb3N0Z3JlU1FMIn0seyJpZCI6InN0YXR1cyIsImxhYmVsIjoiV3JhcHBlclBpcGVsaW5lIDogc3RhdHV0IGV0IGR1csOpZSwgcHVpcyBqb2Igc3VpdmFudCJ9LHsiaWQiOiJsb2dzIiwibGFiZWwiOiJDb3JlVmFsaWRhdG9yIDogcmFwcG9ydHMgTkRKU09OIn1dfSwiZGVzY3JpcHRpb24iOm51bGwsImlkIjoicGlwZWxpbmUiLCJraW5kIjoiZmxvd2NoYXJ0Iiwic291cmNlU2hhMjU2IjoiZjkyMjE3ZDhkYzhlMTI5OTNmZDlkM2VhNDhkYTgxYTAzNjY0Y2IyNDQwZTAzZWZiZWFiZTFmM2NlMjczNDc2ZCIsInN0eWxlcyI6W10sInRpdGxlIjoiRXjDqWN1dGlvbiBk4oCZdW4gam9iIiwidmVyc2lvbiI6MX0

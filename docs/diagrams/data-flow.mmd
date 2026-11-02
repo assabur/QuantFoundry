@@ -1,0 +1,30 @@
+flowchart TB
+  raw["Bronze &#58; RAW/listings.csv"]
+  qs["Contrôles Silver &#58; nullité, unicité, code postal"]
+  tech["Création de listing_tech_id"]
+  clean["Remplacement des valeurs nulles configurées"]
+  filter["Filtrage SQL &#58; listing_id &gt; 0"]
+  types["Nettoyage des catégories"]
+  silver["Silver &#58; Parquet partitionné par eventdate"]
+  qg["Contrôles Gold &#58; nullité et unicité"]
+  sql["Transformations SQL &#58; référentiels, biens et prix"]
+  gold["Gold &#58; PostgreSQL via JDBC"]
+  refs["transaction_type, item_type, item_sub_type"]
+  property["property"]
+  history["historique_price"]
+  logs["Rapports qualité &#58; SILVER/ge_logs en NDJSON"]
+  raw --> qs
+  qs --> tech
+  tech --> clean
+  clean --> filter
+  filter --> types
+  types --> silver
+  silver --> qg
+  qg --> sql
+  sql --> gold
+  gold --> refs
+  gold --> property
+  gold --> history
+  qs --> logs
+  qg --> logs
+%% portable-canonical-v2:eyJhY2Nlc3NpYmlsaXR5IjpudWxsLCJkYXRhIjp7ImRpcmVjdGlvbiI6IlRCIiwiZWRnZXMiOlt7ImZyb20iOiJyYXciLCJ0byI6InFzIn0seyJmcm9tIjoicXMiLCJ0byI6InRlY2gifSx7ImZyb20iOiJ0ZWNoIiwidG8iOiJjbGVhbiJ9LHsiZnJvbSI6ImNsZWFuIiwidG8iOiJmaWx0ZXIifSx7ImZyb20iOiJmaWx0ZXIiLCJ0byI6InR5cGVzIn0seyJmcm9tIjoidHlwZXMiLCJ0byI6InNpbHZlciJ9LHsiZnJvbSI6InNpbHZlciIsInRvIjoicWcifSx7ImZyb20iOiJxZyIsInRvIjoic3FsIn0seyJmcm9tIjoic3FsIiwidG8iOiJnb2xkIn0seyJmcm9tIjoiZ29sZCIsInRvIjoicmVmcyJ9LHsiZnJvbSI6ImdvbGQiLCJ0byI6InByb3BlcnR5In0seyJmcm9tIjoiZ29sZCIsInRvIjoiaGlzdG9yeSJ9LHsiZnJvbSI6InFzIiwidG8iOiJsb2dzIn0seyJmcm9tIjoicWciLCJ0byI6ImxvZ3MifV0sIm5vZGVzIjpbeyJpZCI6InJhdyIsImxhYmVsIjoiQnJvbnplIDogUkFXL2xpc3RpbmdzLmNzdiJ9LHsiaWQiOiJxcyIsImxhYmVsIjoiQ29udHLDtGxlcyBTaWx2ZXIgOiBudWxsaXTDqSwgdW5pY2l0w6ksIGNvZGUgcG9zdGFsIn0seyJpZCI6InRlY2giLCJsYWJlbCI6IkNyw6lhdGlvbiBkZSBsaXN0aW5nX3RlY2hfaWQifSx7ImlkIjoiY2xlYW4iLCJsYWJlbCI6IlJlbXBsYWNlbWVudCBkZXMgdmFsZXVycyBudWxsZXMgY29uZmlndXLDqWVzIn0seyJpZCI6ImZpbHRlciIsImxhYmVsIjoiRmlsdHJhZ2UgU1FMIDogbGlzdGluZ19pZCA-IDAifSx7ImlkIjoidHlwZXMiLCJsYWJlbCI6Ik5ldHRveWFnZSBkZXMgY2F0w6lnb3JpZXMifSx7ImlkIjoic2lsdmVyIiwibGFiZWwiOiJTaWx2ZXIgOiBQYXJxdWV0IHBhcnRpdGlvbm7DqSBwYXIgZXZlbnRkYXRlIn0seyJpZCI6InFnIiwibGFiZWwiOiJDb250csO0bGVzIEdvbGQgOiBudWxsaXTDqSBldCB1bmljaXTDqSJ9LHsiaWQiOiJzcWwiLCJsYWJlbCI6IlRyYW5zZm9ybWF0aW9ucyBTUUwgOiByw6lmw6lyZW50aWVscywgYmllbnMgZXQgcHJpeCJ9LHsiaWQiOiJnb2xkIiwibGFiZWwiOiJHb2xkIDogUG9zdGdyZVNRTCB2aWEgSkRCQyJ9LHsiaWQiOiJyZWZzIiwibGFiZWwiOiJ0cmFuc2FjdGlvbl90eXBlLCBpdGVtX3R5cGUsIGl0ZW1fc3ViX3R5cGUifSx7ImlkIjoicHJvcGVydHkiLCJsYWJlbCI6InByb3BlcnR5In0seyJpZCI6Imhpc3RvcnkiLCJsYWJlbCI6Imhpc3RvcmlxdWVfcHJpY2UifSx7ImlkIjoibG9ncyIsImxhYmVsIjoiUmFwcG9ydHMgcXVhbGl0w6kgOiBTSUxWRVIvZ2VfbG9ncyBlbiBOREpTT04ifV19LCJkZXNjcmlwdGlvbiI6bnVsbCwiaWQiOiJkYXRhLWZsb3ciLCJraW5kIjoiZmxvd2NoYXJ0Iiwic291cmNlU2hhMjU2IjoiZDIxOWZmYzNhMGFlOWE3ZDY3Y2I1N2I3YTdjNDIwZTczMjhmMThhMmFmZjYwMDE1MjZkOTA5OWJiZWYyM2Q3ZSIsInN0eWxlcyI6W10sInRpdGxlIjoiUGFyY291cnMgZGVzIGRvbm7DqWVzIiwidmVyc2lvbiI6MX0
