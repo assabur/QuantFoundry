@@ -1,18 +1,21 @@
+import argparse
+import logging
+
 from src.execution_context import ExecutionContext
 from src.wrapper_pipeline import WrapperPipeline
 
 
 def main():
-    context = ExecutionContext(
-
-                                #specification_file="config/silver/listing.yaml"
-                                specification_file="config/gold/listing.yaml"
-                               )
-
-    config = context.get_configs()
-    spark = context.get_spark()
-    wrapper = WrapperPipeline(configs=config, spark=spark)
+    parser = argparse.ArgumentParser(description='Run configured ingestion jobs')
+    parser.add_argument('--config', default='config/market/polars.yaml')
+    args = parser.parse_args()
+    logging.basicConfig(level=logging.INFO, format='%(message)s')
+    context = ExecutionContext(specification_file=args.config)
+    wrapper = WrapperPipeline(configs=context.get_configs())
     wrapper.launch()
+    if wrapper.errors:
+        raise SystemExit(1)
 
 
-main()
+if __name__ == '__main__':
+    main()

@@ -28,7 +28,7 @@ class ConfigHandler:
         List all the files in the folder
         """
         files = [f for f in listdir(path) if isfile(join(path, f))]
-        return list(filter(lambda file: str(file).endswith("yaml", "yml"), files))
+        return sorted(file for file in files if file.endswith((".yaml", ".yml")))
 
     def read_as_string_local(self, path, encoding: str = "utf-8") -> List[str]:
         """

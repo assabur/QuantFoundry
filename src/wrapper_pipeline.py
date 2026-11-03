@@ -1,42 +1,60 @@
-import time
+import logging
+
 from src.pipeline import Pipeline
-from src.skeleton import GroupConfig
-from pyspark.sql import SparkSession
+from src.engines.backend import SparkEngine
+
+LOGGER = logging.getLogger('quantfoundry.wrapper')
 
 
 class WrapperPipeline:
-    """
-    this class is the wrapper of the job
-    It contains a group of jobs,
-    And this group it contains in the class GroupConfig
-    And the function launch allow to launch the set of job sequentially.
+    """Execute ordered jobs, sharing a lazily initialized Spark session."""
 
-    """
-
-    def __init__(self, configs: GroupConfig, spark: SparkSession) -> None:
+    def __init__(self, configs, spark=None):
         self.configs = configs
         self.spark = spark
         self.status = []
+        self.results = []
+        self.errors = []
 
     def launch(self):
-        errors = []
-        for config in self.enable_jobs:
-            start_time = time.time()
-            try:
+        engines = {}
+        jobs = self.enable_jobs
+        # Packages must be configured before the first shared Spark session.
+        iceberg_required = any(
+            config.engine == 'spark' and SparkEngine.requires_iceberg(config)
+            for config in jobs
+        )
+        try:
+            for config in jobs:
                 pipeline = Pipeline(config, spark=self.spark)
-                pipeline.run()
-                end_time = time.time()
-                job_duration = round(end_time - start_time, 1)
-                self.status.append((config.name, job_duration, "Success"))
-                print(f"********************* {config.name} ===> {job_duration} seconds *************************")
-            except Exception as exception:
-                self.status.append((config.name, 0, "Fails"))
-                errors.append((config.name, exception))
+                try:
+                    pipeline.engine = engines.get(config.engine)
+                    if config.engine == 'spark' and pipeline.engine is None:
+                        pipeline.engine = SparkEngine(
+                            spark=self.spark, iceberg_required=iceberg_required,
+                        )
+                    pipeline.run()
+                    engines[config.engine] = pipeline.engine
+                    status = 'Success'
+                except Exception as exc:
+                    status = 'Fails'
+                    self.errors.append((config.name, exc))
+                    LOGGER.exception('Job %s failed (%s)', config.name, config.engine)
+                if pipeline.engine is not None:
+                    engines[config.engine] = pipeline.engine
+                self.results.append(pipeline.metrics)
+                self.status.append((
+                    config.name, pipeline.metrics.get('duration_s', 0), status,
+                ))
+        finally:
+            backend = engines.get('spark')
+            if backend and self.spark is None and backend.spark is not None:
+                backend.spark.stop()
+        return self.results
 
     @property
     def enable_jobs(self):
-        configs = sorted(
+        return sorted(
             [config for config in self.configs.configs if config.enable],
-            key=lambda x: x.order,
+            key=lambda config: config.order,
         )
-        return configs

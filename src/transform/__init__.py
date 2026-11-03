@@ -5,9 +5,12 @@ from src.transform.utils import preprocessing, replace_nulls_values, clean_types
 
 __all__ = [
     "AbstractTransform",
+    "DataFrameTransformer",
     "preprocessing",
     "FreeStyleTransformer",
     "replace_nulls_values",
     "clean_types_columns",
     "SqlTransformer",
 ]
+
+from src.transform.dataframe_transformer import DataFrameTransformer

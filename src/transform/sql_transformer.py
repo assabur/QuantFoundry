@@ -16,6 +16,5 @@ class SqlTransformer(AbstractTransform):
         if self.cache:
             output_dataframe = output_dataframe.cache()
 
-        output_dataframe.show(truncate=False)
 
         return output_dataframe

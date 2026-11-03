@@ -4,7 +4,6 @@ from src.utils.config_handler import ConfigHandler
 
 
 
-@pytest.mark.xfail(reason="Known issue: list_of_files uses str.endswith with wrong signature.")
 def test_list_of_files_yaml_yml(tmp_path: Path):
     d = tmp_path / "cfg"
     d.mkdir()

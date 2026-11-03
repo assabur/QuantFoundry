@@ -1,98 +1,132 @@
-from typing import Dict
-from pyspark.sql import DataFrame as SDF
-from src.load import AbstractLoader
-from src.transform import AbstractTransform
-from src.skeleton import Config
-from src.validators import AbstractValidator
-from src.extract import AbstractExtractor
+import json
+import logging
+import time
+from uuid import uuid4
+
+from src.engines import create_engine
+
+LOGGER = logging.getLogger('quantfoundry.ingestion')
 
 
 class Pipeline:
-    def __init__(self, config: Config, spark) -> None:
-        """
-        Parameters
-        -----------
-        config: Config
-            The config for one job (workflow)
-        spark: SparkSession
-            The spark session that will be used through all the project
-        """
+    """Run one job with one compute engine and emit measured stage metrics."""
+
+    def __init__(self, config, spark=None, engine=None):
         self.config = config
         self.spark = spark
+        self.engine = engine
+        self.metrics = {}
+        self._counts = {}
 
-    def set_extract_results(self, outputs: Dict[str, SDF]) -> None:
-        """
-        This function will run the extract part of the workflow
-        Parameters
-        ----------
-        outputs: Dict[str, SDF] : map contains as a key the name of
-        the dataframe and the value is the dataframe itself
-        """
+    def _measure(self, stage, name, action, dataframe=False, rows=None):
+        start = time.perf_counter()
+        record = {'stage': stage, 'name': name, 'status': 'success'}
+        try:
+            result = action()
+            if dataframe:
+                rows = self.engine.row_count(result)
+                self._counts[id(result)] = rows
+            record['rows'] = rows
+            return result
+        except Exception as exc:
+            record.update(status='failed', error_type=type(exc).__name__)
+            raise
+        finally:
+            elapsed = time.perf_counter() - start
+            record['duration_s'] = elapsed
+            if rows is not None:
+                record['rows_per_second'] = rows / elapsed if elapsed else None
+            self.metrics['stages'].append(record)
 
-        for config in self.config.inputs:
-            outputs[config.name] = AbstractExtractor.from_config(config).extract(uri=config.uri, spark=self.spark)
+    def set_extract_results(self, outputs):
+        for config in self.config.inputs or []:
+            outputs[config.name] = self._measure(
+                'extract', config.name,
+                lambda c=config: self.engine.extract(c), dataframe=True,
+            )
 
-    def set_quality_gate(self, outputs: Dict[str, SDF]) -> None:
-        """
-        This function will run the rules for the pre-validations of the dataframe
-        Parameters like data quality checks etc
-        ----------
-        outputs: dataframe or json store on the silver layer to make dashboards later
-        """
+    def set_quality_gate(self, outputs):
+        for config in self.config.quality_gate or []:
+            data = (
+                {k: outputs[v] for k, v in config.input.items()}
+                if isinstance(config.input, dict) else outputs[config.input]
+            )
+            self._measure(
+                'quality', config.name,
+                lambda c=config, d=data: self.engine.validate(c, d),
+            )
 
-        if not self.config.quality_gate:
-            return
-        for config in self.config.quality_gate:
-            if isinstance(config.input, str):
-                print("In Quality Gate Section")
-                AbstractValidator.from_config(config).validate(outputs[config.input], self.spark)
-            if isinstance(config.input, dict):
-                inputs: Dict[str, SDF] = {}
-                for k, v in config.input.items():
-                    inputs[k] = outputs[v]
-                AbstractValidator.from_config(config).validate(inputs, self.spark)
-
-    def set_transform_results(self, outputs: Dict[str, SDF]) -> None:
-        if not self.config.transforms:
-            return
-        for config in self.config.transforms:
-            inputs: Dict[str, SDF] = {}
+    def set_transform_results(self, outputs):
+        for config in self.config.transforms or []:
+            data = None
             if isinstance(config.inputs, dict):
-                for k, v in config.inputs.items():
-                    inputs[k] = outputs[v]
-                outputs[config.name] = AbstractTransform.from_config(config).transform(inputs, self.spark)
-            if isinstance(config.inputs, str):
-                outputs[config.name] = AbstractTransform.from_config(config).transform(
-                    outputs[config.inputs], self.spark
-                )
-            if config.inputs is None:
-                outputs[config.name] = AbstractTransform.from_config(config).transform(None, self.spark)
+                data = {k: outputs[v] for k, v in config.inputs.items()}
+            elif isinstance(config.inputs, str):
+                data = outputs[config.inputs]
+            outputs[config.name] = self._measure(
+                'transform', config.name,
+                lambda c=config, d=data: self.engine.transform(c, d),
+                dataframe=True,
+            )
 
-    def set_load_results(self, outputs: Dict[str, SDF]) -> None:
-        """
-        This function will load the dataframe ; on S3; MongoDb or Atlas
-        Parameters
-        ----------
-        outputs: Dict[str, SDF] : map contains as a key the name of
-        the dataframe and the value is the dataframe itself
-        """
-        print("In Load Section")
+    def set_load_results(self, outputs):
+        for config in self.config.outputs or []:
+            data = outputs[config.input]
+            self._measure(
+                'load', config.name,
+                lambda c=config, d=data: self.engine.load(c, d),
+                rows=self._counts[id(data)],
+            )
 
-        for config in self.config.outputs:
-            dataframe = outputs[config.input]
-
-            """outputs[config.name] = ParquetLoader(config).load(
-                           dataframe, config.uri,
-                           self.spark)"""
-
-            outputs[config.name] = AbstractLoader.from_config(config).load(dataframe, config.uri, self.spark)
-
-    def run(self) -> Dict[str, SDF]:
-        outputs: Dict[str, SDF] = {}
-        self.set_extract_results(outputs)
-        self.set_quality_gate(outputs)
-        self.set_transform_results(outputs)
-        self.set_load_results(outputs)
-        # self.spark.catalog.clearCache()
-
-        return outputs
+    def run(self):
+        start = time.perf_counter()
+        cpu_start = time.process_time()
+        self.metrics = {
+            'event': 'ingestion_metrics', 'run_id': str(uuid4()),
+            'job': self.config.name, 'engine': self.config.engine,
+            'status': 'running', 'stages': [], 'engine_setup_s': 0.0,
+        }
+        self._counts = {}
+        try:
+            if self.engine is None:
+                self.engine = create_engine(self.config.engine, self.spark)
+            if self.engine.name != self.config.engine:
+                raise ValueError('Configured engine and supplied engine differ')
+            self.engine.check_config(self.config)
+            setup_start = time.perf_counter()
+            try:
+                self.engine.start()
+            finally:
+                self.metrics['engine_setup_s'] = time.perf_counter() - setup_start
+            self.spark = self.engine.spark
+            outputs = {}
+            self.set_extract_results(outputs)
+            self.set_quality_gate(outputs)
+            self.set_transform_results(outputs)
+            self.set_load_results(outputs)
+            self.metrics['status'] = 'success'
+            return outputs
+        except Exception as exc:
+            self.metrics.update(
+                status='failed', error_type=type(exc).__name__, error=str(exc),
+            )
+            raise
+        finally:
+            if self.engine is not None:
+                try:
+                    self.engine.close()
+                except Exception:
+                    LOGGER.exception('Engine cleanup failed')
+            duration = time.perf_counter() - start
+            stages = self.metrics['stages']
+            inputs = sum(s.get('rows') or 0 for s in stages
+                         if s['stage'] == 'extract')
+            outputs = sum(s.get('rows') or 0 for s in stages
+                          if s['stage'] == 'load' and s['status'] == 'success')
+            self.metrics.update(
+                duration_s=duration,
+                python_cpu_s=time.process_time() - cpu_start,
+                input_rows=inputs, output_rows=outputs,
+                input_rows_per_second=inputs / duration if duration else None,
+            )
+            LOGGER.info(json.dumps(self.metrics, ensure_ascii=False))

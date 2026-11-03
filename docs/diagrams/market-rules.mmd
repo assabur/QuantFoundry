@@ -1,0 +1,15 @@
+flowchart TB
+  trades["Transactions valides et uniques par instrument"]
+  bars["Agrégation par minute UTC &#58; OHLC, volume, VWAP"]
+  hist["Historique des 60 minutes précédentes, minute courante exclue"]
+  ind["Indicateurs &#58; rendement, moyenne du volume, volatilité"]
+  rule["Historique complet ET volume supérieur à 3 fois la moyenne ET variation absolue supérieure à 2 %"]
+  all["indicators &#58; toutes les minutes avec le booléen alert"]
+  alerts["alerts &#58; uniquement les minutes signalées"]
+  trades --> bars
+  bars --> hist
+  hist --> ind
+  ind --> rule
+  rule --> all
+  all --> alerts
+%% portable-canonical-v2:eyJhY2Nlc3NpYmlsaXR5IjpudWxsLCJkYXRhIjp7ImRpcmVjdGlvbiI6IlRCIiwiZWRnZXMiOlt7ImZyb20iOiJ0cmFkZXMiLCJ0byI6ImJhcnMifSx7ImZyb20iOiJiYXJzIiwidG8iOiJoaXN0In0seyJmcm9tIjoiaGlzdCIsInRvIjoiaW5kIn0seyJmcm9tIjoiaW5kIiwidG8iOiJydWxlIn0seyJmcm9tIjoicnVsZSIsInRvIjoiYWxsIn0seyJmcm9tIjoiYWxsIiwidG8iOiJhbGVydHMifV0sIm5vZGVzIjpbeyJpZCI6InRyYWRlcyIsImxhYmVsIjoiVHJhbnNhY3Rpb25zIHZhbGlkZXMgZXQgdW5pcXVlcyBwYXIgaW5zdHJ1bWVudCJ9LHsiaWQiOiJiYXJzIiwibGFiZWwiOiJBZ3LDqWdhdGlvbiBwYXIgbWludXRlIFVUQyA6IE9ITEMsIHZvbHVtZSwgVldBUCJ9LHsiaWQiOiJoaXN0IiwibGFiZWwiOiJIaXN0b3JpcXVlIGRlcyA2MCBtaW51dGVzIHByw6ljw6lkZW50ZXMsIG1pbnV0ZSBjb3VyYW50ZSBleGNsdWUifSx7ImlkIjoiaW5kIiwibGFiZWwiOiJJbmRpY2F0ZXVycyA6IHJlbmRlbWVudCwgbW95ZW5uZSBkdSB2b2x1bWUsIHZvbGF0aWxpdMOpIn0seyJpZCI6InJ1bGUiLCJsYWJlbCI6Ikhpc3RvcmlxdWUgY29tcGxldCBFVCB2b2x1bWUgc3Vww6lyaWV1ciDDoCAzIGZvaXMgbGEgbW95ZW5uZSBFVCB2YXJpYXRpb24gYWJzb2x1ZSBzdXDDqXJpZXVyZSDDoCAyICUifSx7ImlkIjoiYWxsIiwibGFiZWwiOiJpbmRpY2F0b3JzIDogdG91dGVzIGxlcyBtaW51dGVzIGF2ZWMgbGUgYm9vbMOpZW4gYWxlcnQifSx7ImlkIjoiYWxlcnRzIiwibGFiZWwiOiJhbGVydHMgOiB1bmlxdWVtZW50IGxlcyBtaW51dGVzIHNpZ25hbMOpZXMifV19LCJkZXNjcmlwdGlvbiI6bnVsbCwiaWQiOiJtYXJrZXQtcnVsZXMiLCJraW5kIjoiZmxvd2NoYXJ0Iiwic291cmNlU2hhMjU2IjoiODM0OTBkNTg2NGU4MzlkYTQyYTgwNDM3MGEwNzkwZjViMjdhMjAxNWJlZjBjNjMyZDdhNjJhYjc0ZjgzZDNlZSIsInN0eWxlcyI6W10sInRpdGxlIjoiRHUgdHJhZGUgw6AgbGEgdGFibGUgZGVzIGFub21hbGllcyIsInZlcnNpb24iOjF9

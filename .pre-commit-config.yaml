@@ -3,8 +3,5 @@ repos:
     rev: 7.1.0
     hooks:
       - id: flake8
-        name: flake8 (PEP8 only on src/)
-        files: ^src/
-        args:
-          - --select=E,W
-          - --max-line-length=120
+        name: flake8 (critical Python errors)
+        files: ^(src/|tests/|local\.py$)

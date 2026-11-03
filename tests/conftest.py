@@ -17,7 +17,7 @@ for c in CANDIDATES:
 def spark():
     spark = (SparkSession.builder
              .master("local[1]")
-             .appName("aviv_etl_tests")
+             .appName("quantfoundry_tests")
              .config("spark.ui.enabled", "false")
              .config("spark.sql.session.timeZone", "UTC")
              .getOrCreate())

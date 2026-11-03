@@ -1,13 +1,15 @@
 [project]
-name = "aviv-etl"
+name = "quantfoundry"
 version = "0.1.0"
-description = "Pipeline ETL PySpark configurable vers Parquet et PostgreSQL"
+description = "Pipelines batch PySpark pour le traitement de données de marché et la recherche quantitative"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 dependencies = [
     "dataclasses-json==0.6.7",
     "great-expectations==0.18.22",
     "pandas==2.1.4",
+    "polars>=1,<2",
+    "pyarrow>=15,<20",
     "pyspark==4.0.0",
     "python-dotenv==1.1.1",
     "pyyaml==6.0.2",
@@ -23,7 +25,3 @@ dev = [
 
 [tool.uv]
 package = false
-
-[tool.ruff]
-line-length = 88        # ou 79/120
-lint.select = ["E", "W"]  # règles PEP 8 (équiv. pycodestyle)

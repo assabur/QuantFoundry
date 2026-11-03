@@ -1,0 +1,57 @@
+enable: true
+name: market_surveillance_pandas
+order: 1
+engine: pandas
+inputs:
+- name: trades
+  uri: ${raw}/market/trades.parquet
+  parameters:
+    format: parquet
+transforms:
+- name: clean_trades
+  transformer: FreeStyleTransformer
+  inputs: trades
+  parameters:
+    function_name: src.market.surveillance.clean_trades
+- name: minute_bars
+  transformer: FreeStyleTransformer
+  inputs: clean_trades
+  parameters:
+    function_name: src.market.surveillance.minute_bars
+- name: indicators
+  transformer: FreeStyleTransformer
+  inputs: minute_bars
+  parameters:
+    function_name: src.market.surveillance.detect_anomalies
+    function_parameters:
+      lookback_minutes: 60
+      min_history_minutes: 60
+      volume_multiplier: 3.0
+      price_change_threshold: 0.02
+- name: alerts
+  transformer: FreeStyleTransformer
+  inputs: indicators
+  parameters:
+    function_name: src.market.surveillance.alerts_only
+outputs:
+- name: market_trades
+  input: clean_trades
+  loader: src.load.FileLoader
+  uri: ${silver}/market/pandas/trades.parquet
+  parameters:
+    mode: overwrite
+    format: parquet
+- name: market_indicators
+  input: indicators
+  loader: src.load.FileLoader
+  uri: ${gold}/market/pandas/indicators.parquet
+  parameters:
+    mode: overwrite
+    format: parquet
+- name: market_alerts
+  input: alerts
+  loader: src.load.FileLoader
+  uri: ${gold}/market/pandas/alerts.parquet
+  parameters:
+    mode: overwrite
+    format: parquet

@@ -1,0 +1,17 @@
+flowchart TB
+  source["Démonstration ou transactions Binance"]
+  raw["Bronze commun &#58; trades.parquet"]
+  pd["pandas &#58; nettoyage et calculs natifs"]
+  pl["Polars &#58; nettoyage et calculs natifs"]
+  sp["Spark &#58; nettoyage et calculs distribués"]
+  pdp["Parquet &#58; trades, indicators, alerts"]
+  plp["Parquet &#58; trades, indicators, alerts"]
+  ice["Iceberg &#58; local.market.trades, indicators, alerts"]
+  source --> raw
+  raw --> pd
+  raw --> pl
+  raw --> sp
+  pd --> pdp
+  pl --> plp
+  sp --> ice
+%% portable-canonical-v2:eyJhY2Nlc3NpYmlsaXR5IjpudWxsLCJkYXRhIjp7ImRpcmVjdGlvbiI6IlRCIiwiZWRnZXMiOlt7ImZyb20iOiJzb3VyY2UiLCJ0byI6InJhdyJ9LHsiZnJvbSI6InJhdyIsInRvIjoicGQifSx7ImZyb20iOiJyYXciLCJ0byI6InBsIn0seyJmcm9tIjoicmF3IiwidG8iOiJzcCJ9LHsiZnJvbSI6InBkIiwidG8iOiJwZHAifSx7ImZyb20iOiJwbCIsInRvIjoicGxwIn0seyJmcm9tIjoic3AiLCJ0byI6ImljZSJ9XSwibm9kZXMiOlt7ImlkIjoic291cmNlIiwibGFiZWwiOiJEw6ltb25zdHJhdGlvbiBvdSB0cmFuc2FjdGlvbnMgQmluYW5jZSJ9LHsiaWQiOiJyYXciLCJsYWJlbCI6IkJyb256ZSBjb21tdW4gOiB0cmFkZXMucGFycXVldCJ9LHsiaWQiOiJwZCIsImxhYmVsIjoicGFuZGFzIDogbmV0dG95YWdlIGV0IGNhbGN1bHMgbmF0aWZzIn0seyJpZCI6InBsIiwibGFiZWwiOiJQb2xhcnMgOiBuZXR0b3lhZ2UgZXQgY2FsY3VscyBuYXRpZnMifSx7ImlkIjoic3AiLCJsYWJlbCI6IlNwYXJrIDogbmV0dG95YWdlIGV0IGNhbGN1bHMgZGlzdHJpYnXDqXMifSx7ImlkIjoicGRwIiwibGFiZWwiOiJQYXJxdWV0IDogdHJhZGVzLCBpbmRpY2F0b3JzLCBhbGVydHMifSx7ImlkIjoicGxwIiwibGFiZWwiOiJQYXJxdWV0IDogdHJhZGVzLCBpbmRpY2F0b3JzLCBhbGVydHMifSx7ImlkIjoiaWNlIiwibGFiZWwiOiJJY2ViZXJnIDogbG9jYWwubWFya2V0LnRyYWRlcywgaW5kaWNhdG9ycywgYWxlcnRzIn1dfSwiZGVzY3JpcHRpb24iOm51bGwsImlkIjoibWFya2V0LWZsb3ciLCJraW5kIjoiZmxvd2NoYXJ0Iiwic291cmNlU2hhMjU2IjoiMWVkMzQwNjdkYWNjYmIwMWNlMmZhNTY4NThjZTZjYmE5ZTIxNmI4MDA5MDg3MzIyMmU4Y2UxZTQyZThlOTE4YyIsInN0eWxlcyI6W10sInRpdGxlIjoiTcOqbWUgZmx1eCwgdHJvaXMgbW90ZXVycyIsInZlcnNpb24iOjF9

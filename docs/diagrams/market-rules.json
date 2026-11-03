@@ -1,0 +1,70 @@
+{
+  "version": 2,
+  "title": "Du trade à la table des anomalies",
+  "diagrams": [
+    {
+      "id": "market-rules",
+      "title": "Du trade à la table des anomalies",
+      "kind": "flowchart",
+      "data": {
+        "direction": "TB",
+        "nodes": [
+          {
+            "id": "trades",
+            "label": "Transactions valides et uniques par instrument"
+          },
+          {
+            "id": "bars",
+            "label": "Agrégation par minute UTC : OHLC, volume, VWAP"
+          },
+          {
+            "id": "hist",
+            "label": "Historique des 60 minutes précédentes, minute courante exclue"
+          },
+          {
+            "id": "ind",
+            "label": "Indicateurs : rendement, moyenne du volume, volatilité"
+          },
+          {
+            "id": "rule",
+            "label": "Historique complet ET volume supérieur à 3 fois la moyenne ET variation absolue supérieure à 2 %"
+          },
+          {
+            "id": "all",
+            "label": "indicators : toutes les minutes avec le booléen alert"
+          },
+          {
+            "id": "alerts",
+            "label": "alerts : uniquement les minutes signalées"
+          }
+        ],
+        "edges": [
+          {
+            "from": "trades",
+            "to": "bars"
+          },
+          {
+            "from": "bars",
+            "to": "hist"
+          },
+          {
+            "from": "hist",
+            "to": "ind"
+          },
+          {
+            "from": "ind",
+            "to": "rule"
+          },
+          {
+            "from": "rule",
+            "to": "all"
+          },
+          {
+            "from": "all",
+            "to": "alerts"
+          }
+        ]
+      }
+    }
+  ]
+}

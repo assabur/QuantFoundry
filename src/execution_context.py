@@ -30,7 +30,6 @@ class ExecutionContext(metaclass=Singleton):
 
     def get_config(self, content_config) -> Config:
         render_text = self.render(content_config)
-        print(content_config)
 
         render_text = yaml.load(render_text, Loader=yaml.FullLoader)
         render_text = json.dumps(render_text)

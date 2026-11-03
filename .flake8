@@ -1,0 +1,4 @@
+[flake8]
+# Check critical Python errors without enforcing formatting on existing code.
+select = E9,F63,F7,F82
+exclude = .git,.venv,__pycache__,datalake,artifacts,spark-warehouse

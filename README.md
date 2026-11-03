@@ -1,217 +1,451 @@
+# QuantFoundry – Traitements batch de données de marché
 
-# aviv_etl – Pipeline ETL PySpark vers PostgreSQL
+QuantFoundry exécute des pipelines configurables avec **pandas, Polars et Spark**.
+Le cas métier de surveillance de marché traite **le même fichier de transactions**
+avec chaque moteur : nettoyage, bougies à la minute, indicateurs et détection
+conjointe des pics de volume et des mouvements de prix.
 
-Projet **config-driven** pour ingérer un jeu de données *listings* (CSV), appliquer des transformations (SQL ou Python),
-faire des **contrôles qualité** (Great Expectations) puis **charger** les données en **Parquet** (silver) et en **PostgreSQL**
-(gold) dans les tables  modélisé comme `property`, `historique_price` etc .
+Les sorties sont des **tables Apache Iceberg pour Spark** et des **fichiers
+Parquet pour pandas et Polars**. Une alerte est une ligne de données à examiner ;
+aucun service de notification n’est nécessaire.
 
----
+## Cas métier : surveillance du marché
 
-## Vue d’ensemble
+Un analyste veut repérer les minutes où le volume et le prix varient fortement
+sur BTCUSDT et ETHUSDT. Les trois implémentations utilisent les API natives de
+leur moteur, sans conversion du traitement Spark ou Polars vers pandas.
 
-- **Langage** : Python
-- **Moteur** : PySpark (Spark local `local[4]`)
-- **Qualité des données** : Great Expectations (validations paramétrables)
-- **Stockage** :
-  - **RAW(Bronze) / SILVER / GOLD** : chemins paramétrés via `.env`
-  - **Parquet** (silver) avec partition par `eventdate`
-  - **PostgreSQL** (gold) via JDBC
-- **Exécution** : `uv run python local.py` (choisit un job YAML dans `config/`)
+### Même source, trois exécutions
 
----
-
-## Comprendre le pipeline avec Mermaid
-
-Les diagrammes ci-dessous sont accompagnés de fichiers `.mmd` modifiables dans
-[`docs/diagrams/`](docs/diagrams/).
-
-### Parcours des données : Bronze → Silver → Gold
-
-Source : [`data-flow.mmd`](docs/diagrams/data-flow.mmd), d’après les configurations
-[Silver](config/silver/listing.yaml) et [Gold](config/gold/listing.yaml).
+Source modifiable : [`market-flow.mmd`](docs/diagrams/market-flow.mmd).
 
 ```mermaid
 flowchart TB
-  raw["Bronze &#58; RAW/listings.csv"]
-  qs["Contrôles Silver &#58; nullité, unicité, code postal"]
-  tech["Création de listing_tech_id"]
-  clean["Remplacement des valeurs nulles configurées"]
-  filter["Filtrage SQL &#58; listing_id &gt; 0"]
-  types["Nettoyage des catégories"]
-  silver["Silver &#58; Parquet partitionné par eventdate"]
-  qg["Contrôles Gold &#58; nullité et unicité"]
-  sql["Transformations SQL &#58; référentiels, biens et prix"]
-  gold["Gold &#58; PostgreSQL via JDBC"]
-  refs["transaction_type, item_type, item_sub_type"]
-  property["property"]
-  history["historique_price"]
-  logs["Rapports qualité &#58; SILVER/ge_logs en NDJSON"]
-  raw --> qs
-  qs --> tech
-  tech --> clean
-  clean --> filter
-  filter --> types
-  types --> silver
-  silver --> qg
-  qg --> sql
-  sql --> gold
-  gold --> refs
-  gold --> property
-  gold --> history
-  qs --> logs
-  qg --> logs
-%% portable-canonical-v2:eyJhY2Nlc3NpYmlsaXR5IjpudWxsLCJkYXRhIjp7ImRpcmVjdGlvbiI6IlRCIiwiZWRnZXMiOlt7ImZyb20iOiJyYXciLCJ0byI6InFzIn0seyJmcm9tIjoicXMiLCJ0byI6InRlY2gifSx7ImZyb20iOiJ0ZWNoIiwidG8iOiJjbGVhbiJ9LHsiZnJvbSI6ImNsZWFuIiwidG8iOiJmaWx0ZXIifSx7ImZyb20iOiJmaWx0ZXIiLCJ0byI6InR5cGVzIn0seyJmcm9tIjoidHlwZXMiLCJ0byI6InNpbHZlciJ9LHsiZnJvbSI6InNpbHZlciIsInRvIjoicWcifSx7ImZyb20iOiJxZyIsInRvIjoic3FsIn0seyJmcm9tIjoic3FsIiwidG8iOiJnb2xkIn0seyJmcm9tIjoiZ29sZCIsInRvIjoicmVmcyJ9LHsiZnJvbSI6ImdvbGQiLCJ0byI6InByb3BlcnR5In0seyJmcm9tIjoiZ29sZCIsInRvIjoiaGlzdG9yeSJ9LHsiZnJvbSI6InFzIiwidG8iOiJsb2dzIn0seyJmcm9tIjoicWciLCJ0byI6ImxvZ3MifV0sIm5vZGVzIjpbeyJpZCI6InJhdyIsImxhYmVsIjoiQnJvbnplIDogUkFXL2xpc3RpbmdzLmNzdiJ9LHsiaWQiOiJxcyIsImxhYmVsIjoiQ29udHLDtGxlcyBTaWx2ZXIgOiBudWxsaXTDqSwgdW5pY2l0w6ksIGNvZGUgcG9zdGFsIn0seyJpZCI6InRlY2giLCJsYWJlbCI6IkNyw6lhdGlvbiBkZSBsaXN0aW5nX3RlY2hfaWQifSx7ImlkIjoiY2xlYW4iLCJsYWJlbCI6IlJlbXBsYWNlbWVudCBkZXMgdmFsZXVycyBudWxsZXMgY29uZmlndXLDqWVzIn0seyJpZCI6ImZpbHRlciIsImxhYmVsIjoiRmlsdHJhZ2UgU1FMIDogbGlzdGluZ19pZCA-IDAifSx7ImlkIjoidHlwZXMiLCJsYWJlbCI6Ik5ldHRveWFnZSBkZXMgY2F0w6lnb3JpZXMifSx7ImlkIjoic2lsdmVyIiwibGFiZWwiOiJTaWx2ZXIgOiBQYXJxdWV0IHBhcnRpdGlvbm7DqSBwYXIgZXZlbnRkYXRlIn0seyJpZCI6InFnIiwibGFiZWwiOiJDb250csO0bGVzIEdvbGQgOiBudWxsaXTDqSBldCB1bmljaXTDqSJ9LHsiaWQiOiJzcWwiLCJsYWJlbCI6IlRyYW5zZm9ybWF0aW9ucyBTUUwgOiByw6lmw6lyZW50aWVscywgYmllbnMgZXQgcHJpeCJ9LHsiaWQiOiJnb2xkIiwibGFiZWwiOiJHb2xkIDogUG9zdGdyZVNRTCB2aWEgSkRCQyJ9LHsiaWQiOiJyZWZzIiwibGFiZWwiOiJ0cmFuc2FjdGlvbl90eXBlLCBpdGVtX3R5cGUsIGl0ZW1fc3ViX3R5cGUifSx7ImlkIjoicHJvcGVydHkiLCJsYWJlbCI6InByb3BlcnR5In0seyJpZCI6Imhpc3RvcnkiLCJsYWJlbCI6Imhpc3RvcmlxdWVfcHJpY2UifSx7ImlkIjoibG9ncyIsImxhYmVsIjoiUmFwcG9ydHMgcXVhbGl0w6kgOiBTSUxWRVIvZ2VfbG9ncyBlbiBOREpTT04ifV19LCJkZXNjcmlwdGlvbiI6bnVsbCwiaWQiOiJkYXRhLWZsb3ciLCJraW5kIjoiZmxvd2NoYXJ0Iiwic291cmNlU2hhMjU2IjoiZDIxOWZmYzNhMGFlOWE3ZDY3Y2I1N2I3YTdjNDIwZTczMjhmMThhMmFmZjYwMDE1MjZkOTA5OWJiZWYyM2Q3ZSIsInN0eWxlcyI6W10sInRpdGxlIjoiUGFyY291cnMgZGVzIGRvbm7DqWVzIiwidmVyc2lvbiI6MX0
+  source["Démonstration ou transactions Binance"]
+  raw["Bronze commun &#58; trades.parquet"]
+  pd["pandas &#58; nettoyage et calculs natifs"]
+  pl["Polars &#58; nettoyage et calculs natifs"]
+  sp["Spark &#58; nettoyage et calculs distribués"]
+  pdp["Parquet &#58; trades, indicators, alerts"]
+  plp["Parquet &#58; trades, indicators, alerts"]
+  ice["Iceberg &#58; local.market.trades, indicators, alerts"]
+  source --> raw
+  raw --> pd
+  raw --> pl
+  raw --> sp
+  pd --> pdp
+  pl --> plp
+  sp --> ice
+%% portable-canonical-v2:eyJhY2Nlc3NpYmlsaXR5IjpudWxsLCJkYXRhIjp7ImRpcmVjdGlvbiI6IlRCIiwiZWRnZXMiOlt7ImZyb20iOiJzb3VyY2UiLCJ0byI6InJhdyJ9LHsiZnJvbSI6InJhdyIsInRvIjoicGQifSx7ImZyb20iOiJyYXciLCJ0byI6InBsIn0seyJmcm9tIjoicmF3IiwidG8iOiJzcCJ9LHsiZnJvbSI6InBkIiwidG8iOiJwZHAifSx7ImZyb20iOiJwbCIsInRvIjoicGxwIn0seyJmcm9tIjoic3AiLCJ0byI6ImljZSJ9XSwibm9kZXMiOlt7ImlkIjoic291cmNlIiwibGFiZWwiOiJEw6ltb25zdHJhdGlvbiBvdSB0cmFuc2FjdGlvbnMgQmluYW5jZSJ9LHsiaWQiOiJyYXciLCJsYWJlbCI6IkJyb256ZSBjb21tdW4gOiB0cmFkZXMucGFycXVldCJ9LHsiaWQiOiJwZCIsImxhYmVsIjoicGFuZGFzIDogbmV0dG95YWdlIGV0IGNhbGN1bHMgbmF0aWZzIn0seyJpZCI6InBsIiwibGFiZWwiOiJQb2xhcnMgOiBuZXR0b3lhZ2UgZXQgY2FsY3VscyBuYXRpZnMifSx7ImlkIjoic3AiLCJsYWJlbCI6IlNwYXJrIDogbmV0dG95YWdlIGV0IGNhbGN1bHMgZGlzdHJpYnXDqXMifSx7ImlkIjoicGRwIiwibGFiZWwiOiJQYXJxdWV0IDogdHJhZGVzLCBpbmRpY2F0b3JzLCBhbGVydHMifSx7ImlkIjoicGxwIiwibGFiZWwiOiJQYXJxdWV0IDogdHJhZGVzLCBpbmRpY2F0b3JzLCBhbGVydHMifSx7ImlkIjoiaWNlIiwibGFiZWwiOiJJY2ViZXJnIDogbG9jYWwubWFya2V0LnRyYWRlcywgaW5kaWNhdG9ycywgYWxlcnRzIn1dfSwiZGVzY3JpcHRpb24iOm51bGwsImlkIjoibWFya2V0LWZsb3ciLCJraW5kIjoiZmxvd2NoYXJ0Iiwic291cmNlU2hhMjU2IjoiMWVkMzQwNjdkYWNjYmIwMWNlMmZhNTY4NThjZTZjYmE5ZTIxNmI4MDA5MDg3MzIyMmU4Y2UxZTQyZThlOTE4YyIsInN0eWxlcyI6W10sInRpdGxlIjoiTcOqbWUgZmx1eCwgdHJvaXMgbW90ZXVycyIsInZlcnNpb24iOjF9
 ```
 
-Les jobs Silver et Gold se lancent séparément en choisissant leur YAML dans `local.py`.
-Le loader Parquet ajoute la date d’exécution dans `eventdate`. Le YAML Gold pointe
-actuellement vers `eventdate=2025-08-26` : adaptez ce chemin à la partition Silver à lire.
+L’entrée Bronze commune utilise ce contrat :
 
-### Orchestration d’un job
+| Colonne | Type | Description |
+| --- | --- | --- |
+| `symbol` | string | Instrument, par exemple BTCUSDT |
+| `trade_id` | int64 | Identifiant unique au sein d’un instrument |
+| `timestamp_us` | int64 | Microsecondes depuis l’époque Unix, en UTC |
+| `price` | float64 | Prix d’exécution |
+| `quantity` | float64 | Quantité dans l’actif de base |
 
-Source : [`pipeline.mmd`](docs/diagrams/pipeline.mmd), d’après
-[`Pipeline.run()`](src/pipeline.py) et [`WrapperPipeline`](src/wrapper_pipeline.py).
+Les prix et quantités sont des flottants destinés à l’analyse ; les comparaisons
+entre moteurs utilisent une tolérance numérique, pas une égalité binaire.
+
+### Démarrage rapide, sans réseau
+
+```bash
+uv sync --locked
+export RAW=./datalake/raw
+export SILVER=./datalake/silver
+export GOLD=./datalake/gold
+
+# Génère 452 lignes : 450 transactions valides, un doublon et une ligne invalide.
+uv run python -m src.market.prepare --mode demo
+
+uv run python local.py --config config/market/pandas.yaml
+uv run python local.py --config config/market/polars.yaml
+
+# Spark : Java 17+, accès à Maven lors du premier chargement du connecteur.
+export ICEBERG_WAREHOUSE=./datalake/iceberg
+uv run python local.py --config config/market/spark.yaml
+```
+
+Pour exécuter les trois jobs à la suite :
+
+```bash
+uv run python local.py --config config/market
+```
+
+Le runtime et le catalogue Iceberg `local` sont activés automatiquement pour
+les jobs utilisant `IcebergLoader` ou une entrée de format `iceberg`. Pour un groupe
+de jobs, cette configuration est préparée dès la première session Spark.
+`ICEBERG_ENABLED=true` reste disponible pour une activation manuelle.
+
+Les chemins peuvent aussi être définis dans `.env`. Les trois YAML sont dans
+[`config/market/`](config/market/), et les calculs dans
+[`src/market/surveillance.py`](src/market/surveillance.py).
+Le téléchargement/générateur est dans [`src/market/prepare.py`](src/market/prepare.py).
+
+### Étapes du job `market_surveillance_polars`
+
+Le job est défini dans [`config/market/polars.yaml`](config/market/polars.yaml).
+`enable: true` l’active, `engine: polars` sélectionne Polars pour lire,
+transformer et écrire les données, et `order: 2` fixe son ordre lorsque plusieurs
+jobs sont exécutés ensemble. Les étapes s’enchaînent par leurs noms : le champ
+`inputs` de chaque transformation désigne le résultat de l’étape précédente.
+`FreeStyleTransformer` appelle la fonction Python indiquée dans `function_name`.
+
+**1. Préparer le fichier brut, avant de lancer le job.**
+La commande `uv run python -m src.market.prepare --mode demo` crée
+`datalake/raw/market/trades.parquet`. Elle génère 450 transactions valides,
+ajoute une copie de la première transaction et une transaction avec un prix de
+`-1.0` : le fichier contient donc **452 lignes**. Cette préparation est extérieure
+au job YAML ; le mode Binance présenté ci-dessous permet de remplacer la démo
+par des transactions réelles.
+
+**2. Lire l’entrée `trades`.**
+Le job charge `${raw}/market/trades.parquet` au format Parquet dans un DataFrame
+Polars. Les cinq champs attendus sont `symbol`, `trade_id`, `timestamp_us`,
+`price` et `quantity`.
+
+**3. Nettoyer avec `clean_trades`.**
+La fonction `src.market.surveillance.clean_trades` garde ces cinq colonnes et
+convertit les champs numériques en nombres : par exemple, le texte `"125.50"`
+devient le nombre `125.5`. Une conversion impossible produit `null`, puis la
+ligne est supprimée. Elle rejette aussi les symboles vides, les valeurs manquantes
+ou non finies (`NaN`, infinis), les prix/quantités inférieurs ou égaux à zéro et
+les identifiants/horodatages négatifs ou non entiers. Ces deux derniers champs
+sont ensuite convertis en `Int64`.
+
+Pour chaque couple `(symbol, trade_id)`, elle conserve une seule transaction :
+le timestamp le plus ancien, puis le prix et la quantité les plus bas en cas
+d’égalité. **Dans la démo, 452 lignes deviennent 450** : le doublon et le prix
+négatif sont écartés. Le fichier brut reste intact.
+
+**4. Construire les bougies avec `minute_bars`.**
+La fonction `src.market.surveillance.minute_bars` regroupe les transactions par
+symbole et minute UTC. Elle calcule le premier prix (`open`), le maximum (`high`),
+le minimum (`low`), le dernier prix (`close`), la quantité totale (`volume`),
+le montant total (`notional = somme(price × quantity)`), le nombre de transactions
+et le prix moyen pondéré (`vwap = notional / volume`). Dans la démo,
+**450 transactions deviennent 150 bougies** : 75 minutes pour chacun des 2 symboles.
+
+**5. Calculer `indicators` et décider si une minute déclenche une alerte.**
+La fonction `src.market.surveillance.detect_anomalies` ajoute à chaque bougie le
+rendement sur une minute, la moyenne des volumes passés et la volatilité.
+Avec les paramètres de ce YAML, `alert` vaut `true` seulement si les trois
+conditions suivantes sont satisfaites :
+
+- `lookback_minutes: 60` et `min_history_minutes: 60` : les 60 minutes précédentes
+  sont présentes dans la fenêtre, sans inclure la minute courante ;
+- `volume_multiplier: 3.0` : le volume courant dépasse strictement 3 fois la
+  moyenne des volumes de cette fenêtre ;
+- `price_change_threshold: 0.02` : la variation absolue du prix de clôture par
+  rapport à la minute précédente dépasse strictement 2 %.
+
+Les calculs sont séparés par symbole. Les minutes sans transactions ne sont pas
+ajoutées. Cette étape conserve **les 150 bougies de la démo**, y compris celles
+dont `alert` vaut `false`.
+
+**6. Extraire `alerts`.**
+La fonction `src.market.surveillance.alerts_only` garde uniquement les lignes
+où `alert = true`. Dans la démo, elle renvoie **2 alertes**, une par symbole à
+`2025-01-01 01:05:00 UTC` : le volume est 5 fois la moyenne et le prix augmente de 3 %.
+
+**7. Écrire les trois résultats en Parquet.**
+Chaque sortie utilise `src.load.FileLoader` et remplace son fichier précédent
+avec `mode: overwrite`.
+
+| Sortie YAML | Résultat utilisé | Destination | Lignes dans la démo |
+| --- | --- | --- | --- |
+| `market_trades` | `clean_trades` | `${silver}/market/polars/trades.parquet` | 450 |
+| `market_indicators` | `indicators` | `${gold}/market/polars/indicators.parquet` | 150 |
+| `market_alerts` | `alerts` | `${gold}/market/polars/alerts.parquet` | 2 |
+
+Pour préparer puis exécuter uniquement ce job, avec les chemins par défaut :
+
+```bash
+export RAW=./datalake/raw
+export SILVER=./datalake/silver
+export GOLD=./datalake/gold
+uv run python -m src.market.prepare --mode demo
+uv run python local.py --config config/market/polars.yaml
+```
+
+### Utiliser les transactions réelles Binance
+
+```bash
+# Remplace le fichier Bronze : relancer ensuite les jobs pour recalculer les sorties.
+uv run python -m src.market.prepare --mode binance \
+  --date 2025-01-01 --symbols BTCUSDT ETHUSDT
+```
+
+Le téléchargement utilise les archives quotidiennes de transactions spot,
+vérifie leur SHA-256 et normalise le CSV par blocs de 250 000 lignes en un fichier
+Parquet commun. Le symbole vient du nom de l’archive ; le montant est recalculé
+pendant l’agrégation avec `price * quantity`.
+Les dates antérieures à 2025 sont converties de millisecondes en microsecondes,
+conformément à la [documentation Binance Public Data](https://github.com/binance/binance-public-data#spot).
+Le paramètre `--output` permet de choisir un autre fichier ; adapter alors les
+URI d’entrée des trois YAML. Cette commande prépare une journée par exécution.
+
+### Règles de calcul communes
+
+Source modifiable : [`market-rules.mmd`](docs/diagrams/market-rules.mmd).
 
 ```mermaid
 flowchart TB
-  entry["local.py &#58; choix du YAML Silver ou Gold"]
-  context["ExecutionContext &#58; YAML et variables .env"]
-  config["GroupConfig et session Spark"]
-  wrapper["WrapperPipeline &#58; jobs enable triés par order"]
-  extract["Pipeline &#58; extraction des inputs"]
-  quality["quality_gate optionnel sur les données extraites"]
-  transform["Transformations SQL ou Python dans l’ordre du YAML"]
-  load["Chargement des outputs &#58; Parquet ou PostgreSQL"]
-  status["WrapperPipeline &#58; statut et durée, puis job suivant"]
-  logs["CoreValidator &#58; rapports NDJSON"]
-  entry --> context
-  context --> config
-  config --> wrapper
-  wrapper --> extract
-  extract --> quality
-  quality --> transform
-  transform --> load
-  load --> status
-  quality --> logs
-%% portable-canonical-v2:eyJhY2Nlc3NpYmlsaXR5IjpudWxsLCJkYXRhIjp7ImRpcmVjdGlvbiI6IlRCIiwiZWRnZXMiOlt7ImZyb20iOiJlbnRyeSIsInRvIjoiY29udGV4dCJ9LHsiZnJvbSI6ImNvbnRleHQiLCJ0byI6ImNvbmZpZyJ9LHsiZnJvbSI6ImNvbmZpZyIsInRvIjoid3JhcHBlciJ9LHsiZnJvbSI6IndyYXBwZXIiLCJ0byI6ImV4dHJhY3QifSx7ImZyb20iOiJleHRyYWN0IiwidG8iOiJxdWFsaXR5In0seyJmcm9tIjoicXVhbGl0eSIsInRvIjoidHJhbnNmb3JtIn0seyJmcm9tIjoidHJhbnNmb3JtIiwidG8iOiJsb2FkIn0seyJmcm9tIjoibG9hZCIsInRvIjoic3RhdHVzIn0seyJmcm9tIjoicXVhbGl0eSIsInRvIjoibG9ncyJ9XSwibm9kZXMiOlt7ImlkIjoiZW50cnkiLCJsYWJlbCI6ImxvY2FsLnB5IDogY2hvaXggZHUgWUFNTCBTaWx2ZXIgb3UgR29sZCJ9LHsiaWQiOiJjb250ZXh0IiwibGFiZWwiOiJFeGVjdXRpb25Db250ZXh0IDogWUFNTCBldCB2YXJpYWJsZXMgLmVudiJ9LHsiaWQiOiJjb25maWciLCJsYWJlbCI6Ikdyb3VwQ29uZmlnIGV0IHNlc3Npb24gU3BhcmsifSx7ImlkIjoid3JhcHBlciIsImxhYmVsIjoiV3JhcHBlclBpcGVsaW5lIDogam9icyBlbmFibGUgdHJpw6lzIHBhciBvcmRlciJ9LHsiaWQiOiJleHRyYWN0IiwibGFiZWwiOiJQaXBlbGluZSA6IGV4dHJhY3Rpb24gZGVzIGlucHV0cyJ9LHsiaWQiOiJxdWFsaXR5IiwibGFiZWwiOiJxdWFsaXR5X2dhdGUgb3B0aW9ubmVsIHN1ciBsZXMgZG9ubsOpZXMgZXh0cmFpdGVzIn0seyJpZCI6InRyYW5zZm9ybSIsImxhYmVsIjoiVHJhbnNmb3JtYXRpb25zIFNRTCBvdSBQeXRob24gZGFucyBs4oCZb3JkcmUgZHUgWUFNTCJ9LHsiaWQiOiJsb2FkIiwibGFiZWwiOiJDaGFyZ2VtZW50IGRlcyBvdXRwdXRzIDogUGFycXVldCBvdSBQb3N0Z3JlU1FMIn0seyJpZCI6InN0YXR1cyIsImxhYmVsIjoiV3JhcHBlclBpcGVsaW5lIDogc3RhdHV0IGV0IGR1csOpZSwgcHVpcyBqb2Igc3VpdmFudCJ9LHsiaWQiOiJsb2dzIiwibGFiZWwiOiJDb3JlVmFsaWRhdG9yIDogcmFwcG9ydHMgTkRKU09OIn1dfSwiZGVzY3JpcHRpb24iOm51bGwsImlkIjoicGlwZWxpbmUiLCJraW5kIjoiZmxvd2NoYXJ0Iiwic291cmNlU2hhMjU2IjoiZjkyMjE3ZDhkYzhlMTI5OTNmZDlkM2VhNDhkYTgxYTAzNjY0Y2IyNDQwZTAzZWZiZWFiZTFmM2NlMjczNDc2ZCIsInN0eWxlcyI6W10sInRpdGxlIjoiRXjDqWN1dGlvbiBk4oCZdW4gam9iIiwidmVyc2lvbiI6MX0
+  trades["Transactions valides et uniques par instrument"]
+  bars["Agrégation par minute UTC &#58; OHLC, volume, VWAP"]
+  hist["Historique des 60 minutes précédentes, minute courante exclue"]
+  ind["Indicateurs &#58; rendement, moyenne du volume, volatilité"]
+  rule["Historique complet ET volume supérieur à 3 fois la moyenne ET variation absolue supérieure à 2 %"]
+  all["indicators &#58; toutes les minutes avec le booléen alert"]
+  alerts["alerts &#58; uniquement les minutes signalées"]
+  trades --> bars
+  bars --> hist
+  hist --> ind
+  ind --> rule
+  rule --> all
+  all --> alerts
+%% portable-canonical-v2:eyJhY2Nlc3NpYmlsaXR5IjpudWxsLCJkYXRhIjp7ImRpcmVjdGlvbiI6IlRCIiwiZWRnZXMiOlt7ImZyb20iOiJ0cmFkZXMiLCJ0byI6ImJhcnMifSx7ImZyb20iOiJiYXJzIiwidG8iOiJoaXN0In0seyJmcm9tIjoiaGlzdCIsInRvIjoiaW5kIn0seyJmcm9tIjoiaW5kIiwidG8iOiJydWxlIn0seyJmcm9tIjoicnVsZSIsInRvIjoiYWxsIn0seyJmcm9tIjoiYWxsIiwidG8iOiJhbGVydHMifV0sIm5vZGVzIjpbeyJpZCI6InRyYWRlcyIsImxhYmVsIjoiVHJhbnNhY3Rpb25zIHZhbGlkZXMgZXQgdW5pcXVlcyBwYXIgaW5zdHJ1bWVudCJ9LHsiaWQiOiJiYXJzIiwibGFiZWwiOiJBZ3LDqWdhdGlvbiBwYXIgbWludXRlIFVUQyA6IE9ITEMsIHZvbHVtZSwgVldBUCJ9LHsiaWQiOiJoaXN0IiwibGFiZWwiOiJIaXN0b3JpcXVlIGRlcyA2MCBtaW51dGVzIHByw6ljw6lkZW50ZXMsIG1pbnV0ZSBjb3VyYW50ZSBleGNsdWUifSx7ImlkIjoiaW5kIiwibGFiZWwiOiJJbmRpY2F0ZXVycyA6IHJlbmRlbWVudCwgbW95ZW5uZSBkdSB2b2x1bWUsIHZvbGF0aWxpdMOpIn0seyJpZCI6InJ1bGUiLCJsYWJlbCI6Ikhpc3RvcmlxdWUgY29tcGxldCBFVCB2b2x1bWUgc3Vww6lyaWV1ciDDoCAzIGZvaXMgbGEgbW95ZW5uZSBFVCB2YXJpYXRpb24gYWJzb2x1ZSBzdXDDqXJpZXVyZSDDoCAyICUifSx7ImlkIjoiYWxsIiwibGFiZWwiOiJpbmRpY2F0b3JzIDogdG91dGVzIGxlcyBtaW51dGVzIGF2ZWMgbGUgYm9vbMOpZW4gYWxlcnQifSx7ImlkIjoiYWxlcnRzIiwibGFiZWwiOiJhbGVydHMgOiB1bmlxdWVtZW50IGxlcyBtaW51dGVzIHNpZ25hbMOpZXMifV19LCJkZXNjcmlwdGlvbiI6bnVsbCwiaWQiOiJtYXJrZXQtcnVsZXMiLCJraW5kIjoiZmxvd2NoYXJ0Iiwic291cmNlU2hhMjU2IjoiODM0OTBkNTg2NGU4MzlkYTQyYTgwNDM3MGEwNzkwZjViMjdhMjAxNWJlZjBjNjMyZDdhNjJhYjc0ZjgzZDNlZSIsInN0eWxlcyI6W10sInRpdGxlIjoiRHUgdHJhZGUgw6AgbGEgdGFibGUgZGVzIGFub21hbGllcyIsInZlcnNpb24iOjF9
 ```
 
-Les contrôles qualité s’exécutent **avant les transformations**, sur les données extraites.
-`CoreValidator` écrit les résultats dans `${SILVER}/ge_logs/` au format NDJSON ;
-un résultat qualité négatif ne bloque pas à lui seul la suite du job.
-Si une étape lève une exception, le wrapper marque le job `Fails` et passe au suivant.
+1. **Nettoyage** : suppression des champs requis nuls, des symboles vides, des
+   valeurs numériques non finies et des prix/quantités non positifs. Les identifiants
+   et horodatages doivent être des entiers positifs ou nuls. Les doublons sur
+   `(symbol, trade_id)` sont résolus en conservant le plus petit triplet
+   `(timestamp_us, price, quantity)`.
+2. **Agrégation** : une ligne par `(symbol, minute)` ; les minutes sont les
+   intervalles UTC `[début, début + 60 secondes[`. Open et close suivent l’ordre
+   `(timestamp_us, trade_id)`. Calcul de high, low, volume, montant, nombre de
+   transactions et `vwap = somme(price × quantity) / somme(quantity)`.
+3. **Historique** : pour la minute `t`, la référence couvre `[t − 60 min, t[`.
+   Les instruments sont indépendants. Les minutes sans transactions ne sont pas
+   créées artificiellement. `history_count` indique les minutes observées ;
+   `history_ready` exige par défaut les 60 minutes précédentes.
+4. **Indicateurs** : `return_1m = close(t) / close(t−1 min) − 1` ; il est nul
+   au sens SQL (`null`/`NaN`) lorsque la minute précédente manque.
+   `volume_mean` est la moyenne des volumes passés et `volatility` l’écart-type
+   échantillonnal (`ddof=1`) des rendements disponibles dans cette même fenêtre,
+   sans annualisation. Moins de deux rendements donne une volatilité manquante.
+5. **Détection** : la colonne `alert` vaut vrai si l’historique est suffisant,
+   `volume / volume_mean > 3` **et** `abs(return_1m) > 0.02`. Les comparaisons sont
+   strictes. Une condition manquante produit `false`.
 
----
+Les seuils sont des règles de démonstration à calibrer. Ils sont configurés sous
+`function_parameters` de la transformation `indicators` dans chaque YAML :
 
-## Structure du repo
-
-```
-aviv_etl/
-├─ local.py                       # point d’entrée : lance un pipeline à partir d’un YAML
-├─ src/
-│  ├─ execution_context.py        # lit .env + YAML, résout les chemins, instancie Spark
-│  ├─ wrapper_pipeline.py         # enchaîne les jobs (GroupConfig) + timing & statut
-│  ├─ pipeline.py                 # orchestration d’un job (inputs → quality_gate → transforms → outputs)
-│  ├─ extract/                    # Extractor générique (CSV/...) : schéma DDL, options Spark
-│  ├─ transform/                  # SQL ou fonctions Python (freestyle): normalisation, utils
-│  ├─ load/                       # loaders Parquet & PostgreSQL (JDBC)
-│  ├─ validators/                 # Great Expectations – contrôles colonnes/règles
-│  └─ utils/                      # Spark helper + lecture des fichiers YAML
-├─ docs/diagrams/                # sources Mermaid : parcours, orchestration et modèle de données
-├─ config/
-│  ├─ silver/listing.yaml         # job silver : RAW (Bronze) ou Bronze → nettoyage → Parquet (partition eventdate)
-│  └─ gold/listing.yaml           # job gold : silver → quality gate → Postgres
-├─ initdb/init_listing_table.sql  # DDL PostgreSQL (property, historique_price, dictionnaires)
-├─ docker-compose.yaml            # Postgres + pgAdmin
-├─ .env                           # variables (DB_*, RAW(Bronze), SILVER, GOLD)
-├─ pyproject.toml                 # dépendances et outils de développement
-├─ uv.lock                        # versions résolues reproductibles
-└─ .python-version                # Python 3.12 par défaut
-```
-
----
-
-##  Prérequis
-
-- **Python** 3.11 ou 3.12 (3.12 sélectionné par `.python-version`)
-- **Java JDK** ≥ 17 (requis par PySpark 4)
-- **PostgreSQL** via Docker Compose
-- **uv** ([installation officielle](https://docs.astral.sh/uv/getting-started/installation/))
----
-
-## Configuration (.env)
-
-Exemple de `.env` à la racine du projet :
-
-```env
-# --- Base de données ---
-DB_USER=user
-DB_PASSWORD=pwd
-DB_NAME=postgres_db_name
-DB_HOST=localhost
-DB_PORT=5432
-
-# --- Data Lake local ---
-RAW=./datalake/raw
-SILVER=./datalake/silver
-GOLD=./datalake/gold
+```yaml
+lookback_minutes: 60
+min_history_minutes: 60
+volume_multiplier: 3.0
+price_change_threshold: 0.02  # fraction : 0.02 = 2 %
 ```
 
-> Créez les dossiers `./datalake/{raw,silver,gold}` et placez votre `listings.csv` dans `${RAW}`.
+Conserver les mêmes paramètres dans les trois YAML pour comparer les moteurs.
+L’historique recommence au début du fichier traité : prévoir des données précédentes
+si la première heure d’une journée doit déjà être analysable.
 
----
+### Sorties et résultats attendus
 
-## Base de données (Docker)
+| Données | pandas / Polars | Spark |
+| --- | --- | --- |
+| Transactions nettoyées | `${SILVER}/market/<engine>/trades.parquet` | `local.market.trades` |
+| Toutes les minutes et indicateurs | `${GOLD}/market/<engine>/indicators.parquet` | `local.market.indicators` |
+| Minutes avec `alert = true` | `${GOLD}/market/<engine>/alerts.parquet` | `local.market.alerts` |
 
-Un `docker-compose.yaml` est fourni pour Postgres + pgAdmin. Démarrer :
+Le catalogue Iceberg `local` est de type Hadoop et stocke données et métadonnées
+sous `ICEBERG_WAREHOUSE`. Ces sorties Spark sont de véritables tables Iceberg,
+accessibles avec `spark.table("local.market.alerts")`. Les jobs remplacent leurs
+sorties (`overwrite`) ; une réexécution ne duplique pas les transactions.
+Les chemins ne servent pas à conserver simultanément plusieurs campagnes :
+changer les URI pour archiver plusieurs jeux de résultats.
+
+Les indicateurs contiennent `symbol`, `minute_start` (UTC), `open`, `high`, `low`,
+`close`, `volume`, `notional`, `trade_count`, `vwap`, `return_1m`, `history_count`,
+`volume_mean`, `volatility`, `history_ready`, `volume_ratio` et `alert`.
+`minute_start` est stocké sans fuseau explicite dans les Parquet natifs ; toutes
+ses valeurs sont à interpréter en UTC. Spark utilise une session en UTC.
+
+La démonstration produit, pour chaque moteur : **450 transactions nettoyées,
+150 minutes et 2 alertes**. Les alertes apparaissent à `2025-01-01 01:05:00 UTC`,
+une par instrument : volume de 15 contre une moyenne passée de 3, soit un ratio
+de 5, et hausse du prix de 3 %.
 
 ```bash
-docker compose up -d
-# Vérifier la santé
-docker inspect --format='{{.State.Health.Status}}' postgres_db
+uv run python -c 'import pandas as pd; print(pd.read_parquet("datalake/gold/market/pandas/alerts.parquet").to_string(index=False))'
 ```
 
-Initialiser le schéma (tables `property`, `historique_price`, etc.) :
+### Vérification et comparaison
 
 ```bash
-# Méthode 1 : psql local
-psql "postgres://db:db@localhost:5432/postgres_db" -f initdb/init_listing_table.sql
+# Calculs métier et pipelines pandas/Polars, sans Java.
+uv run python -m pytest tests/test_market_surveillance.py -k 'not spark and not iceberg'
 
-# Méthode 2 : via le conteneur
-docker exec -i postgres_db psql -U db -d postgres_db < initdb/init_listing_table.sql
+# Ajoute la comparaison des résultats Spark aux résultats natifs.
+PYSPARK_PYTHON="$PWD/.venv/bin/python" uv run python -m pytest tests/test_market_surveillance.py
+
+# Vérifie aussi les trois tables Iceberg et la réexécution sans doublons.
+RUN_ICEBERG_TESTS=1 PYSPARK_PYTHON="$PWD/.venv/bin/python" \
+  PYSPARK_SUBMIT_ARGS='--packages org.apache.iceberg:iceberg-spark-runtime-4.0_2.13:1.10.0 pyspark-shell' \
+  uv run python -m pytest tests/test_market_surveillance.py
 ```
 
-pgAdmin : http://localhost:5050 (admin@admin.com / admin). Ajoutez un serveur vers `postgres_db:5432` (user: `db`, pass: `db`).
+Les tests couvrent les valeurs attendues, les fenêtres sans anticipation,
+l’isolation des instruments, les trous temporels, les doublons, l’ordre OHLC,
+le VWAP, les entrées vides et les deux unités temporelles Binance.
+
+Les événements JSON `ingestion_metrics` donnent les durées de lecture, de calcul
+et d’écriture. La préparation du Bronze est extérieure à ces mesures. Comparer
+les durées de transformation séparément des écritures : Parquet et Iceberg ont
+des coûts de stockage différents. Le petit jeu de démonstration valide les règles ;
+il ne permet pas de conclure sur les performances à grande échelle. pandas et
+Polars chargent ici le fichier en mémoire locale ; Spark permet une exécution
+distribuée.
 
 ---
 
-## Installation
+## Structure actuelle du projet
+
+```text
+QuantFoundry/
+├── local.py                     # lancement d’un YAML ou d’un dossier de jobs
+├── config/market/
+│   ├── pandas.yaml              # ordre 1 : sorties Parquet
+│   ├── polars.yaml              # ordre 2 : sorties Parquet, job par défaut
+│   └── spark.yaml               # ordre 3 : sorties Iceberg
+├── src/
+│   ├── market/prepare.py         # génération démo ou téléchargement Binance
+│   ├── market/surveillance.py    # nettoyage, bougies, indicateurs, alertes
+│   ├── execution_context.py     # chargement YAML et variables .env
+│   ├── wrapper_pipeline.py      # jobs actifs triés par order, statuts et métriques
+│   ├── pipeline.py              # extraction, contrôles, transformations, chargement
+│   ├── engines/                 # moteurs pandas, Polars et Spark
+│   ├── extract/                 # extraction des sources
+│   ├── transform/               # fonctions Python, SQL et opérations DataFrame
+│   ├── load/                    # sorties fichiers, Parquet partitionné et Iceberg
+│   ├── validators/              # contrôles de qualité
+│   └── utils/                   # configuration et session Spark
+├── docs/market-gold.md           # schéma Gold et exemple des alertes obtenues
+├── docs/diagrams/                # sources des diagrammes
+├── tests/                       # tests métier, moteurs, loaders et orchestration
+├── pyproject.toml
+└── uv.lock
+```
+
+Les configurations exécutables concernent la surveillance du marché : une source
+Bronze commune, des transactions nettoyées en Silver et des indicateurs et alertes
+en Gold. Le schéma des résultats est décrit dans
+[`docs/market-gold.md`](docs/market-gold.md).
+
+## Installation et configuration
+
+Python 3.11 ou 3.12 est requis ; `.python-version` sélectionne Python 3.12.
+Les jobs pandas et Polars fonctionnent sans Java. Spark nécessite Java 17 ou
+supérieur et le connecteur Iceberg utilisé par le job de marché.
 
 ```bash
 uv sync --locked
 ```
 
-`uv` crée `.venv` et installe les dépendances de `uv.lock`, y compris le groupe
-`dev` (pytest, pytest-html et flake8). Aucune activation manuelle n’est nécessaire.
-Pour installer uniquement les dépendances du pipeline : `uv sync --locked --no-dev`.
-Python 3.12 est sélectionné par défaut ; la plage 3.11–3.12 conserve la compatibilité
-avec les versions existantes de pandas et Great Expectations.
+`uv` crée `.venv` et installe les dépendances verrouillées, ainsi que les outils
+de développement. Pour les seules dépendances d’exécution :
+`uv sync --locked --no-dev`.
 
-Gestion des dépendances :
+Définir les chemins dans `.env` ou dans l’environnement :
 
-```bash
-uv add nom-du-paquet             # dépendance du pipeline
-uv add --dev nom-du-paquet       # outil de développement
-uv lock                         # actualiser le verrou après modification du pyproject
-uv sync --locked                # synchroniser l’environnement
+```env
+RAW=./datalake/raw
+SILVER=./datalake/silver
+GOLD=./datalake/gold
+
+# Emplacement du catalogue Spark / Iceberg
+ICEBERG_WAREHOUSE=./datalake/iceberg
 ```
 
-Versionnez `pyproject.toml`, `uv.lock` et `.python-version` ensemble.
-Voir la [documentation du verrouillage uv](https://docs.astral.sh/uv/concepts/projects/sync/).
+Les variables d’environnement en majuscules alimentent les paramètres YAML
+`${raw}`, `${silver}` et `${gold}`. Le générateur utilise par défaut
+`datalake/raw/market/trades.parquet` : si `RAW` change, passer aussi
+`--output <nouveau-chemin>/market/trades.parquet` à la commande de préparation.
 
-## Tests
+Après la préparation du fichier brut, `uv run python local.py` lance le job
+Polars. `--config` permet de choisir un autre YAML ou le dossier `config/market`.
+Le dossier contient aussi le job Spark : Java et Iceberg sont alors nécessaires.
 
-Avec Java 17 ou supérieur disponible via `JAVA_HOME` ou le `PATH` :
+## Tables Gold et consultation des résultats
+
+Le schéma des indicateurs et des alertes, leurs destinations et un extrait des
+résultats de démonstration sont décrits dans
+[`docs/market-gold.md`](docs/market-gold.md).
+Les fichiers Parquet et les tables Iceberg sont créés par les loaders à partir
+du schéma des DataFrames ; aucun script SQL préalable n’est nécessaire.
+
+Pour afficher les alertes Polars après l’exécution :
+
+```bash
+uv run python -c 'import polars as pl; print(pl.read_parquet("datalake/gold/market/polars/alerts.parquet"))'
+```
+
+Le job Spark écrit `local.market.trades`, `local.market.indicators` et
+`local.market.alerts`. Le catalogue Hadoop `local` et les extensions Iceberg sont
+configurés avant la création de Spark. Le runtime utilisé est
+`org.apache.iceberg:iceberg-spark-runtime-4.0_2.13:1.10.0` ; son premier chargement
+nécessite un accès à Maven. Le namespace `local.market` est créé automatiquement.
+Les URI Iceberg sont des identifiants de tables, pas des chemins Parquet.
+
+Dans une session Spark configurée avec le même catalogue et le même entrepôt :
+
+```python
+spark.table("local.market.alerts").show()
+spark.sql("SELECT * FROM local.market.alerts.snapshots").show()
+```
+
+`IcebergLoader` accepte `overwrite` (création ou remplacement intégral), `append`
+(création ou ajout) et `error` (échec si la table existe). Les jobs actuels utilisent
+`overwrite`. Les tables sont au format Iceberg v2 ; le stockage local est prévu
+pour le développement sur une machine.
+
+## Fonctionnement du framework
+
+`ExecutionContext` lit le YAML et résout les variables. `WrapperPipeline` trie les
+jobs actifs par `order`, puis chaque `Pipeline` exécute ses entrées, ses éventuels
+contrôles qualité, ses transformations et ses sorties. Spark démarre à la demande ;
+une exécution pandas ou Polars ne crée pas de session Spark.
+
+Chaque transformation référence un résultat par son nom. `FreeStyleTransformer`
+appelle la fonction Python de `function_name` avec les données et le dictionnaire
+`function_parameters`. Le résultat doit être un DataFrame du moteur choisi.
+`DataFrameTransformer` propose aussi sélection, filtre, tri, renommage,
+dédoublonnage, remplacement des valeurs nulles et agrégation. `SqlTransformer`
+utilise SQL Spark ou SQL Polars ; il n’est pas disponible pour pandas.
+
+| Composant | pandas / Polars | Spark |
+| --- | --- | --- |
+| Lecture CSV, Parquet, JSON, NDJSON | Native | Native |
+| `FileLoader` | Fichier local | Dossier de fichiers distribués |
+| `ParquetLoader` | Dataset partitionné par `eventdate` | Dataset partitionné par `eventdate` |
+| `IcebergLoader` | Non pris en charge | Pris en charge |
+| `CoreValidator` | Règles natives | Great Expectations |
+
+Les jobs de marché n’ont pas de section `quality_gate` : leurs règles de nettoyage
+sont dans `clean_trades`. Pour un job qui configure cette section, les contrôles
+s’exécutent avant les transformations et les rapports sont écrits sous
+`${SILVER}/ge_logs/` en NDJSON. Un contrôle négatif ne bloque pas à lui seul le job ;
+une exception technique provoque son échec.
+
+Chaque job émet un événement JSON `ingestion_metrics` avec son statut, ses durées,
+les volumes en entrée/sortie et le détail des étapes. Les DataFrames Spark sont
+matérialisés et mis en cache pendant la mesure, puis les caches sont libérés.
+`output_rows` additionne les lignes présentées à chaque sortie réussie : les
+transactions, les indicateurs et les alertes contribuent donc séparément au total.
+En cas d’échec, les autres jobs continuent et la commande termine avec un code non nul.
+
+## Tests et dépannage
+
+La section « Vérification et comparaison » donne les commandes des tests métier.
+Pour la suite complète, avec Java disponible :
 
 ```bash
 uv run --locked python -m pytest tests
@@ -219,162 +453,29 @@ uv run --locked python -m pytest tests
 uv run --locked python -m pytest tests --html=reports/report.html --self-contained-html
 ```
 
+- Entrée Parquet absente : exécuter la préparation, puis vérifier `RAW` et `--output`.
+- Dépendance Python absente : lancer `uv sync --locked` et utiliser `uv run`.
+- Spark ne démarre pas : vérifier Java 17+, `JAVA_HOME` et l’accès à Maven.
+- Catalogue `local` indisponible : relancer le processus pour créer une nouvelle
+  session Spark et vérifier `ICEBERG_WAREHOUSE`. Une session Spark fournie par un
+  notebook doit être créée avec `SparkHelper(iceberg_required=True).get_spark()`.
+- Pas d’alerte au début du fichier : les 60 minutes précédentes sont nécessaires
+  avec les seuils par défaut ; elles ne sont pas chargées depuis une autre exécution.
 
----
+## Lint Python
 
-## Exécution
+GitHub Actions lance un lint léger à chaque push et pull request, avec Python 3.12
+et Flake8 7.1.0. Les règles partagées dans [`.flake8`](.flake8) détectent les erreurs
+de syntaxe, les noms non définis et certaines constructions invalides
+(`E9`, `F63`, `F7`, `F82`). Le formatage et la longueur des lignes ne sont pas
+bloquants. Le contrôle porte sur `src/`, `tests/` et `local.py` et ne nécessite
+ni Java, ni Spark, ni téléchargement de données.
 
-1) Vérifiez `.env` (chemins RAW/SILVER/GOLD + DB).  
-2) Placez **`listings.csv`** dans `${RAW}`.  
-3) Sélectionnez le job dans `local.py` :
-
-```python
-# local.py
-context = ExecutionContext(
-    # specification_file="config/silver/listing.yaml"
-    specification_file="config/gold/listing.yaml"
-)
-```
-
-- **Silver** : lit `${RAW}/listings.csv`, nettoie/normalise, écrit en **Parquet** dans `${SILVER}/listing` (partition `eventdate=YYYY-MM-DD`).  
-- **Gold** : lit la partition silver configurée (ex: `${SILVER}/listing/eventdate=2025-08-26`), exécute **quality gate**, charge Postgres dans **`property`** et **`historique_price`**.
-
-Lancez :
+Pour lancer le même contrôle en local :
 
 ```bash
-uv run python local.py
-```
-NB :
-> Le Spark local est  configuré sur `local[4]`, mémoire driver 4g.  
-> Le connecteur JDBC Postgres peut être chargé via `spark.jars.packages=org.postgresql:postgresql:42.7.4`.
-
----
-
-## Contrôles qualité (Great Expectations)
-
-La section `quality_gate` des YAML (ex: `config/gold/listing.yaml`) déclenche un validateur (présence / nullité / types / cardinalités).  
-Les résultats peuvent être exportés (events JSON).  
-Pour désactiver : commentez la section `quality_gate` du YAML gold.
-
----
-
-## Schéma de données (Gold / PostgreSQL)
-
-Le diagramme suivant présente la modélisation des biens immobiliers, des types de
-transaction, des catégories de biens et de l’historique des prix.
-
-Source modifiable : [`data-model.mmd`](docs/diagrams/data-model.mmd).
-
-```mermaid
-erDiagram
-  transaction_type {
-    integer id_transaction_type PK
-    text libelle_transaction_type
-  }
-  item_type {
-    integer id_item_type PK
-    text libelle_item_ty
-  }
-  item_sub_type {
-    integer id_item_sub_type PK
-    text libelle_item_sub_type
-    integer id_item_type FK
-  }
-  property {
-    bigint id_property PK
-    date start_date
-    numeric price
-    numeric area
-    numeric site_area
-    integer floor
-    integer room_count
-    integer balcony_count
-    integer terrace_count
-    text has_garden
-    text city
-    text zipcode
-    text has_passenger_lift
-    text is_new_construction
-    integer build_year
-    numeric terrace_area
-    text has_cellar
-    text is_furnished
-    text description_fr
-    integer id_transaction_type FK
-    integer id_item_type FK
-    integer id_item_sub_type FK
-  }
-  historique_price {
-    bigint id_historique_price PK
-    bigint id_property FK
-    date change_date
-    numeric change_price
-  }
-  transaction_type ||--o{ property : "caracterise"
-  item_type ||--o{ property : "classe"
-  item_type ||--o{ item_sub_type : "regroupe"
-  item_sub_type ||--o{ property : "precise"
-  property ||--o{ historique_price : "possede"
-%% portable-canonical-v2:eyJhY2Nlc3NpYmlsaXR5IjpudWxsLCJkYXRhIjp7ImVudGl0aWVzIjpbeyJhdHRyaWJ1dGVzIjpbImludGVnZXIgaWRfdHJhbnNhY3Rpb25fdHlwZSBQSyIsInRleHQgbGliZWxsZV90cmFuc2FjdGlvbl90eXBlIl0sImlkIjoidHJhbnNhY3Rpb25fdHlwZSJ9LHsiYXR0cmlidXRlcyI6WyJpbnRlZ2VyIGlkX2l0ZW1fdHlwZSBQSyIsInRleHQgbGliZWxsZV9pdGVtX3R5Il0sImlkIjoiaXRlbV90eXBlIn0seyJhdHRyaWJ1dGVzIjpbImludGVnZXIgaWRfaXRlbV9zdWJfdHlwZSBQSyIsInRleHQgbGliZWxsZV9pdGVtX3N1Yl90eXBlIiwiaW50ZWdlciBpZF9pdGVtX3R5cGUgRksiXSwiaWQiOiJpdGVtX3N1Yl90eXBlIn0seyJhdHRyaWJ1dGVzIjpbImJpZ2ludCBpZF9wcm9wZXJ0eSBQSyIsImRhdGUgc3RhcnRfZGF0ZSIsIm51bWVyaWMgcHJpY2UiLCJudW1lcmljIGFyZWEiLCJudW1lcmljIHNpdGVfYXJlYSIsImludGVnZXIgZmxvb3IiLCJpbnRlZ2VyIHJvb21fY291bnQiLCJpbnRlZ2VyIGJhbGNvbnlfY291bnQiLCJpbnRlZ2VyIHRlcnJhY2VfY291bnQiLCJ0ZXh0IGhhc19nYXJkZW4iLCJ0ZXh0IGNpdHkiLCJ0ZXh0IHppcGNvZGUiLCJ0ZXh0IGhhc19wYXNzZW5nZXJfbGlmdCIsInRleHQgaXNfbmV3X2NvbnN0cnVjdGlvbiIsImludGVnZXIgYnVpbGRfeWVhciIsIm51bWVyaWMgdGVycmFjZV9hcmVhIiwidGV4dCBoYXNfY2VsbGFyIiwidGV4dCBpc19mdXJuaXNoZWQiLCJ0ZXh0IGRlc2NyaXB0aW9uX2ZyIiwiaW50ZWdlciBpZF90cmFuc2FjdGlvbl90eXBlIEZLIiwiaW50ZWdlciBpZF9pdGVtX3R5cGUgRksiLCJpbnRlZ2VyIGlkX2l0ZW1fc3ViX3R5cGUgRksiXSwiaWQiOiJwcm9wZXJ0eSJ9LHsiYXR0cmlidXRlcyI6WyJiaWdpbnQgaWRfaGlzdG9yaXF1ZV9wcmljZSBQSyIsImJpZ2ludCBpZF9wcm9wZXJ0eSBGSyIsImRhdGUgY2hhbmdlX2RhdGUiLCJudW1lcmljIGNoYW5nZV9wcmljZSJdLCJpZCI6Imhpc3RvcmlxdWVfcHJpY2UifV0sInJlbGF0aW9uc2hpcHMiOlt7ImNhcmRpbmFsaXR5IjoifHwtLW97IiwiZnJvbSI6InRyYW5zYWN0aW9uX3R5cGUiLCJsYWJlbCI6ImNhcmFjdGVyaXNlIiwidG8iOiJwcm9wZXJ0eSJ9LHsiY2FyZGluYWxpdHkiOiJ8fC0tb3siLCJmcm9tIjoiaXRlbV90eXBlIiwibGFiZWwiOiJjbGFzc2UiLCJ0byI6InByb3BlcnR5In0seyJjYXJkaW5hbGl0eSI6Inx8LS1veyIsImZyb20iOiJpdGVtX3R5cGUiLCJsYWJlbCI6InJlZ3JvdXBlIiwidG8iOiJpdGVtX3N1Yl90eXBlIn0seyJjYXJkaW5hbGl0eSI6Inx8LS1veyIsImZyb20iOiJpdGVtX3N1Yl90eXBlIiwibGFiZWwiOiJwcmVjaXNlIiwidG8iOiJwcm9wZXJ0eSJ9LHsiY2FyZGluYWxpdHkiOiJ8fC0tb3siLCJmcm9tIjoicHJvcGVydHkiLCJsYWJlbCI6InBvc3NlZGUiLCJ0byI6Imhpc3RvcmlxdWVfcHJpY2UifV19LCJkZXNjcmlwdGlvbiI6bnVsbCwiaWQiOiJkYXRhLW1vZGVsIiwia2luZCI6ImVyIiwic291cmNlU2hhMjU2IjoiMTExMzRiNDQyZmI3YzkyMzZmZGY4NDdlOTU5ZTU4OTU3NTMxZTg0YjhjOTMyZTNjMTUxYmIwZDFmNzdjZmI3ZSIsInN0eWxlcyI6W10sInRpdGxlIjoiTW9kw6lsaXNhdGlvbiBkZXMgZG9ubsOpZXMgaW1tb2JpbGnDqHJlcyIsInZlcnNpb24iOjF9
+uv run --locked --only-group dev python -m flake8 src tests local.py --count --show-source --statistics
 ```
 
-`PK` désigne une clé primaire et `FK` une clé étrangère. Chaque bien possède un
-seul type de transaction, un seul type et un seul sous-type. Un type ou un
-sous-type peut être associé à zéro ou plusieurs biens. Chaque sous-type appartient
-à un seul type ; chaque changement de prix appartient à un seul bien, qui peut
-avoir zéro ou plusieurs changements de prix.
-
-Les noms des colonnes et les types suivent le script SQL, avec deux attributs
-supplémentaires issus de l’image : `is_furnished` et `description_fr`, présents dans
-les données sources mais absents de la table SQL `property` actuelle.
-
-
-Le script `initdb/init_listing_table.sql` gère :
-
-- Tables : `transaction_type`, `item_type`, `item_sub_type`
-- **`property`** (colonnes : `id_property`, `start_date`, `price`, `area`, `site_area`, `floor`, `room_count`, `balcony_count`, `terrace_count`, `has_garden`, `city`, `zipcode`, `has_passenger_lift`, `is_new_construction`, `build_year`, `terrace_area`, `has_cellar`, `id_transaction_type`, `id_item_type`, `id_item_sub_type`)
-- **`historique_price`** (suivi des changements de prix par `id_property`)
-
-
----
-
-## YAML de pipeline (structure)
-
-Chaque job YAML contient :
-
-- **`inputs`** : sources (format, options Spark, schéma DDL, filtrage, sélection de colonnes)
-- **`transforms`** : transformations en chaîne (SQL ou Python *freestyle*)
-- **`quality_gate`** *(optionnel)* : validations Great Expectations
-- **`outputs`** : loaders (Parquet et/ou Postgres)
-
-Plusieurs jobs peuvent être regroupés (GroupConfig) et exécutés séquentiellement par un wrapper.
-
----
-
-## Débogage & problèmes fréquents
-
-- **`ModuleNotFoundError: No module named 'pyspark'`** : lancez `uv sync --locked` et vérifiez **Java (JDK 17+)** + `JAVA_HOME`.
-- **`great_expectations` introuvable** : `uv sync --locked`, puis lancez les commandes avec `uv run`.
-- **Connexion Postgres refusée** : vérifiez Docker et `.env` (`DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`).
-- **Chemins RAW/SILVER/GOLD** : créez les dossiers, placez `listings.csv` sous `${RAW}`.
-
----
-
-
-## Récapitulatif rapide
-
-```bash
-# 1) Préparer l’env
-uv sync --locked
-
-# 2) Démarrer Postgres
-docker compose up -d
-psql "postgres://db:db@localhost:5432/postgres_db" 
-
-# 3) Configurer
-# Éditez .env (RAW/SILVER/GOLD + DB_*)
-
-# 4) Lancer
-uv run python local.py
-```
-
+Le hook pre-commit utilise les mêmes règles. Les erreurs détectées font échouer
+le contrôle ; les tests fonctionnels restent une vérification distincte.

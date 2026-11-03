@@ -116,6 +116,7 @@ class Config:
     name: str = "default_name"
     enable: bool = True
     order: int = 9999
+    engine: str = "spark"
     quality_gate: Optional[List[ValidationConfig]] = None
     inputs: Optional[List[InputConfig]] = None
     transforms: Optional[List[TransformConfig]] = None
@@ -124,7 +125,8 @@ class Config:
     def __eq__(self, other):
         if isinstance(other, Config):
             return (
-                self.inputs == other.inputs
+                self.engine == other.engine
+                and self.inputs == other.inputs
                 and self.transforms == other.transforms
                 and self.quality_gate == other.quality_gate
                 and self.outputs == other.outputs

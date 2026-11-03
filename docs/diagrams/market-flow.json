@@ -1,0 +1,78 @@
+{
+  "version": 2,
+  "title": "Même flux, trois moteurs",
+  "diagrams": [
+    {
+      "id": "market-flow",
+      "title": "Même flux, trois moteurs",
+      "kind": "flowchart",
+      "data": {
+        "direction": "TB",
+        "nodes": [
+          {
+            "id": "source",
+            "label": "Démonstration ou transactions Binance"
+          },
+          {
+            "id": "raw",
+            "label": "Bronze commun : trades.parquet"
+          },
+          {
+            "id": "pd",
+            "label": "pandas : nettoyage et calculs natifs"
+          },
+          {
+            "id": "pl",
+            "label": "Polars : nettoyage et calculs natifs"
+          },
+          {
+            "id": "sp",
+            "label": "Spark : nettoyage et calculs distribués"
+          },
+          {
+            "id": "pdp",
+            "label": "Parquet : trades, indicators, alerts"
+          },
+          {
+            "id": "plp",
+            "label": "Parquet : trades, indicators, alerts"
+          },
+          {
+            "id": "ice",
+            "label": "Iceberg : local.market.trades, indicators, alerts"
+          }
+        ],
+        "edges": [
+          {
+            "from": "source",
+            "to": "raw"
+          },
+          {
+            "from": "raw",
+            "to": "pd"
+          },
+          {
+            "from": "raw",
+            "to": "pl"
+          },
+          {
+            "from": "raw",
+            "to": "sp"
+          },
+          {
+            "from": "pd",
+            "to": "pdp"
+          },
+          {
+            "from": "pl",
+            "to": "plp"
+          },
+          {
+            "from": "sp",
+            "to": "ice"
+          }
+        ]
+      }
+    }
+  ]
+}
