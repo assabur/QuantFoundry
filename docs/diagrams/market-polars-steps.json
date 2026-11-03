@@ -1,0 +1,106 @@
+{
+  "description": null,
+  "diagrams": [
+    {
+      "accessibility": null,
+      "data": {
+        "direction": "TB",
+        "edges": [
+          {
+            "from": "prepare",
+            "to": "raw"
+          },
+          {
+            "from": "raw",
+            "to": "extract"
+          },
+          {
+            "from": "extract",
+            "to": "clean"
+          },
+          {
+            "from": "clean",
+            "to": "bars"
+          },
+          {
+            "from": "bars",
+            "to": "indicators"
+          },
+          {
+            "from": "indicators",
+            "to": "rule"
+          },
+          {
+            "from": "rule",
+            "to": "alerts"
+          },
+          {
+            "from": "clean",
+            "to": "silver"
+          },
+          {
+            "from": "rule",
+            "to": "gold_ind"
+          },
+          {
+            "from": "alerts",
+            "to": "gold_alerts"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "prepare",
+            "label": "1. Préparation hors du job : générer la démo"
+          },
+          {
+            "id": "raw",
+            "label": "Bronze : raw/market/trades.parquet — 452 lignes"
+          },
+          {
+            "id": "extract",
+            "label": "2. trades : lire le Parquet avec Polars — 452 lignes"
+          },
+          {
+            "id": "clean",
+            "label": "3. clean_trades : convertir les types, retirer les lignes invalides et les doublons — 450 transactions"
+          },
+          {
+            "id": "bars",
+            "label": "4. minute_bars : regrouper par symbole et minute UTC — OHLC, volume, VWAP — 150 bougies"
+          },
+          {
+            "id": "indicators",
+            "label": "5. indicators : historique des 60 minutes précédentes, rendement et volatilité — 150 lignes"
+          },
+          {
+            "id": "rule",
+            "label": "alert = historique complet ET volume > 3 fois la moyenne ET variation absolue du prix > 2 %"
+          },
+          {
+            "id": "alerts",
+            "label": "6. alerts : garder uniquement alert = true — 2 alertes"
+          },
+          {
+            "id": "silver",
+            "label": "7. FileLoader : silver/market/polars/trades.parquet — 450 lignes"
+          },
+          {
+            "id": "gold_ind",
+            "label": "7. FileLoader : gold/market/polars/indicators.parquet — 150 lignes, alert vrai ou faux"
+          },
+          {
+            "id": "gold_alerts",
+            "label": "7. FileLoader : gold/market/polars/alerts.parquet — 2 lignes"
+          }
+        ]
+      },
+      "description": null,
+      "id": "market-polars-steps",
+      "kind": "flowchart",
+      "styles": [],
+      "title": "Étapes du job market_surveillance_polars"
+    }
+  ],
+  "title": "Étapes du job market_surveillance_polars",
+  "version": 2
+}

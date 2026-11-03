@@ -96,6 +96,38 @@ jobs sont exécutés ensemble. Les étapes s’enchaînent par leurs noms : le c
 `inputs` de chaque transformation désigne le résultat de l’étape précédente.
 `FreeStyleTransformer` appelle la fonction Python indiquée dans `function_name`.
 
+Le schéma suit les noms du YAML. Les volumes correspondent au mode `demo` ;
+les chemins utilisent les répertoires par défaut. Les trois branches de sortie
+montrent quel résultat chaque `FileLoader` écrit avec `mode: overwrite`.
+
+Source modifiable : [`market-polars-steps.mmd`](docs/diagrams/market-polars-steps.mmd).
+
+```mermaid
+flowchart TB
+  prepare["1. Préparation hors du job &#58; générer la démo"]
+  raw["Bronze &#58; raw/market/trades.parquet — 452 lignes"]
+  extract["2. trades &#58; lire le Parquet avec Polars — 452 lignes"]
+  clean["3. clean_trades &#58; convertir les types, retirer les lignes invalides et les doublons — 450 transactions"]
+  bars["4. minute_bars &#58; regrouper par symbole et minute UTC — OHLC, volume, VWAP — 150 bougies"]
+  indicators["5. indicators &#58; historique des 60 minutes précédentes, rendement et volatilité — 150 lignes"]
+  rule["alert = historique complet ET volume &gt; 3 fois la moyenne ET variation absolue du prix &gt; 2 %"]
+  alerts["6. alerts &#58; garder uniquement alert = true — 2 alertes"]
+  silver["7. FileLoader &#58; silver/market/polars/trades.parquet — 450 lignes"]
+  gold_ind["7. FileLoader &#58; gold/market/polars/indicators.parquet — 150 lignes, alert vrai ou faux"]
+  gold_alerts["7. FileLoader &#58; gold/market/polars/alerts.parquet — 2 lignes"]
+  prepare --> raw
+  raw --> extract
+  extract --> clean
+  clean --> bars
+  bars --> indicators
+  indicators --> rule
+  rule --> alerts
+  clean --> silver
+  rule --> gold_ind
+  alerts --> gold_alerts
+%% portable-canonical-v2:eyJhY2Nlc3NpYmlsaXR5IjpudWxsLCJkYXRhIjp7ImRpcmVjdGlvbiI6IlRCIiwiZWRnZXMiOlt7ImZyb20iOiJwcmVwYXJlIiwidG8iOiJyYXcifSx7ImZyb20iOiJyYXciLCJ0byI6ImV4dHJhY3QifSx7ImZyb20iOiJleHRyYWN0IiwidG8iOiJjbGVhbiJ9LHsiZnJvbSI6ImNsZWFuIiwidG8iOiJiYXJzIn0seyJmcm9tIjoiYmFycyIsInRvIjoiaW5kaWNhdG9ycyJ9LHsiZnJvbSI6ImluZGljYXRvcnMiLCJ0byI6InJ1bGUifSx7ImZyb20iOiJydWxlIiwidG8iOiJhbGVydHMifSx7ImZyb20iOiJjbGVhbiIsInRvIjoic2lsdmVyIn0seyJmcm9tIjoicnVsZSIsInRvIjoiZ29sZF9pbmQifSx7ImZyb20iOiJhbGVydHMiLCJ0byI6ImdvbGRfYWxlcnRzIn1dLCJub2RlcyI6W3siaWQiOiJwcmVwYXJlIiwibGFiZWwiOiIxLiBQcsOpcGFyYXRpb24gaG9ycyBkdSBqb2IgOiBnw6luw6lyZXIgbGEgZMOpbW8ifSx7ImlkIjoicmF3IiwibGFiZWwiOiJCcm9uemUgOiByYXcvbWFya2V0L3RyYWRlcy5wYXJxdWV0IOKAlCA0NTIgbGlnbmVzIn0seyJpZCI6ImV4dHJhY3QiLCJsYWJlbCI6IjIuIHRyYWRlcyA6IGxpcmUgbGUgUGFycXVldCBhdmVjIFBvbGFycyDigJQgNDUyIGxpZ25lcyJ9LHsiaWQiOiJjbGVhbiIsImxhYmVsIjoiMy4gY2xlYW5fdHJhZGVzIDogY29udmVydGlyIGxlcyB0eXBlcywgcmV0aXJlciBsZXMgbGlnbmVzIGludmFsaWRlcyBldCBsZXMgZG91YmxvbnMg4oCUIDQ1MCB0cmFuc2FjdGlvbnMifSx7ImlkIjoiYmFycyIsImxhYmVsIjoiNC4gbWludXRlX2JhcnMgOiByZWdyb3VwZXIgcGFyIHN5bWJvbGUgZXQgbWludXRlIFVUQyDigJQgT0hMQywgdm9sdW1lLCBWV0FQIOKAlCAxNTAgYm91Z2llcyJ9LHsiaWQiOiJpbmRpY2F0b3JzIiwibGFiZWwiOiI1LiBpbmRpY2F0b3JzIDogaGlzdG9yaXF1ZSBkZXMgNjAgbWludXRlcyBwcsOpY8OpZGVudGVzLCByZW5kZW1lbnQgZXQgdm9sYXRpbGl0w6kg4oCUIDE1MCBsaWduZXMifSx7ImlkIjoicnVsZSIsImxhYmVsIjoiYWxlcnQgPSBoaXN0b3JpcXVlIGNvbXBsZXQgRVQgdm9sdW1lID4gMyBmb2lzIGxhIG1veWVubmUgRVQgdmFyaWF0aW9uIGFic29sdWUgZHUgcHJpeCA-IDIgJSJ9LHsiaWQiOiJhbGVydHMiLCJsYWJlbCI6IjYuIGFsZXJ0cyA6IGdhcmRlciB1bmlxdWVtZW50IGFsZXJ0ID0gdHJ1ZSDigJQgMiBhbGVydGVzIn0seyJpZCI6InNpbHZlciIsImxhYmVsIjoiNy4gRmlsZUxvYWRlciA6IHNpbHZlci9tYXJrZXQvcG9sYXJzL3RyYWRlcy5wYXJxdWV0IOKAlCA0NTAgbGlnbmVzIn0seyJpZCI6ImdvbGRfaW5kIiwibGFiZWwiOiI3LiBGaWxlTG9hZGVyIDogZ29sZC9tYXJrZXQvcG9sYXJzL2luZGljYXRvcnMucGFycXVldCDigJQgMTUwIGxpZ25lcywgYWxlcnQgdnJhaSBvdSBmYXV4In0seyJpZCI6ImdvbGRfYWxlcnRzIiwibGFiZWwiOiI3LiBGaWxlTG9hZGVyIDogZ29sZC9tYXJrZXQvcG9sYXJzL2FsZXJ0cy5wYXJxdWV0IOKAlCAyIGxpZ25lcyJ9XX0sImRlc2NyaXB0aW9uIjpudWxsLCJpZCI6Im1hcmtldC1wb2xhcnMtc3RlcHMiLCJraW5kIjoiZmxvd2NoYXJ0Iiwic291cmNlU2hhMjU2IjoiNDQ0NTdmYzRjZjgxNDBjNzdjZjMyNTFlMzU4MjA2NmQ4OTYzZjdkNjRhZDQ2ZWM4MWVmZDFlOTFhODZkMzk4MiIsInN0eWxlcyI6W10sInRpdGxlIjoiw4l0YXBlcyBkdSBqb2IgbWFya2V0X3N1cnZlaWxsYW5jZV9wb2xhcnMiLCJ2ZXJzaW9uIjoxfQ
+```
+
 **1. Préparer le fichier brut, avant de lancer le job.**
 La commande `uv run python -m src.market.prepare --mode demo` crée
 `datalake/raw/market/trades.parquet`. Elle génère 450 transactions valides,
@@ -304,6 +336,40 @@ des coûts de stockage différents. Le petit jeu de démonstration valide les r�
 il ne permet pas de conclure sur les performances à grande échelle. pandas et
 Polars chargent ici le fichier en mémoire locale ; Spark permet une exécution
 distribuée.
+
+### TODO — Améliorer les mesures de performance Spark / Polars
+
+Dans [`src/engines/backend.py`](src/engines/backend.py), la méthode
+`SparkEngine.row_count()` appelle `df.persist()` si le DataFrame n’est pas déjà
+en cache, puis `df.count()`. `count()` est une méthode du DataFrame PySpark ;
+elle n’est pas définie dans `src`. Cet appel vient de `Pipeline._measure()` dans
+[`src/pipeline.py`](src/pipeline.py), après chaque extraction et transformation.
+
+Ce mécanisme force le calcul des DataFrames Spark, normalement évalués à la
+demande, pour inclure leur exécution dans les durées de chaque étape. Le cache
+permet de réutiliser les résultats, mais les comptages et la matérialisation
+ajoutent du travail et consomment de la mémoire. Le benchmark mesure donc aussi
+le coût de cette instrumentation.
+
+Sur une exécution locale de 2 698 775 transactions, les durées observées étaient
+de **1,08 s pour Polars** et **11,90 s pour Spark**, dont **3,48 s de démarrage
+Spark**. Avec `local[4]`, Spark conserve les coûts de gestion des tâches,
+des partitions et des échanges nécessaires aux regroupements et aux fenêtres.
+Les sorties diffèrent aussi : Spark écrit des tables Iceberg avec métadonnées
+et snapshots, tandis que Polars écrit des fichiers Parquet. Cette observation
+ne permet pas de conclure sur les performances en cluster ou à plus grand volume.
+
+- [ ] Rendre les comptages intermédiaires configurables et comparer leur coût
+  au temps d’une exécution complète sans ces comptages. Sans action Spark,
+  le temps de construction du plan seul ne mesure pas le calcul réel.
+- [ ] Évaluer quels résultats doivent être conservés en cache pour éviter les
+  recalculs, plutôt que de matérialiser systématiquement chaque étape.
+- [ ] Ajouter une comparaison avec des sorties Parquet pour les trois moteurs,
+  afin de mesurer séparément le coût des écritures Iceberg.
+- [ ] Distinguer les exécutions avec démarrage de Spark de celles réutilisant
+  une session, et répéter les mesures sur plusieurs volumes de données.
+- [ ] Compléter les métriques CPU et mémoire : `python_cpu_s` utilise
+  `time.process_time()` et ne couvre pas le CPU de la JVM Spark.
 
 ---
 
